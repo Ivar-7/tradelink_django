@@ -1,0 +1,100 @@
+# Django/Python .gitignore
+#
+# Keep app code, migrations, and config; ignore runtime/build artifacts,
+# local environments, secrets, caches, and collected static.
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Environment variables and secrets
+.env
+*.env
+.secrets/
+
+# Django specific
+# SQLite (dev) DB and journal
+db.sqlite3
+db.sqlite3-journal
+
+# Local settings overrides (if any)
+settings_local.py
+settings_local/*.py
+
+# Media uploads (user-generated)
+media/
+
+# Collected static files (via collectstatic)
+staticfiles/
+# If you keep source static under app directories, DO NOT ignore them.
+# Uncomment to ignore a top-level static build output if you use one
+# static/
+
+# Logs
+*.log
+logs/
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+pytestdebug.log
+.pytest_cache/
+coverage.xml
+
+# Type checking / linters
+.mypy_cache/
+.dmypy.json
+.pyre/
+.ruff_cache/
+.pytype/
+
+# Packaging / distribution
+build/
+dist/
+.eggs/
+*.egg-info/
+.eggs-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE/editor
+.vscode/
+.idea/
+*.iml
+
+# macOS / Linux / Windows junk
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Gunicorn / runtime pids
+*.pid
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SQL dumps
+*.sql
+
+# Sentry CLI/Artifacts (if used)
+.sentryclirc
+.sentry-native/
+
+# Node (only if you add build tooling in backend)
+node_modules/
