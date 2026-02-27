@@ -1,0 +1,225 @@
+{
+  "info": {
+    "name": "Tradelink – Users",
+    "_postman_id": "tradelink-users-v1",
+    "description": "Auth and user management endpoints for the Tradelink Users app.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000/api/v1", "type": "string" },
+    { "key": "access_token", "value": "", "type": "string" },
+    { "key": "refresh_token", "value": "", "type": "string" },
+    { "key": "user_id", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/auth/register/", "host": ["{{base_url}}"], "path": ["auth", "register", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"username\": \"newuser\",\n  \"first_name\": \"Alice\",\n  \"last_name\": \"Doe\",\n  \"password\": \"StrongPass123!\",\n  \"password_confirm\": \"StrongPass123!\",\n  \"role\": \"buyer\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.tokens) {",
+                  "  pm.collectionVariables.set('access_token', json.tokens.access);",
+                  "  pm.collectionVariables.set('refresh_token', json.tokens.refresh);",
+                  "  pm.collectionVariables.set('user_id', json.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/auth/login/", "host": ["{{base_url}}"], "path": ["auth", "login", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"buyer@tradelink.dev\",\n  \"password\": \"TradelinkDemo123!\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.tokens) {",
+                  "  pm.collectionVariables.set('access_token', json.tokens.access);",
+                  "  pm.collectionVariables.set('refresh_token', json.tokens.refresh);",
+                  "  pm.collectionVariables.set('user_id', json.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/auth/logout/", "host": ["{{base_url}}"], "path": ["auth", "logout", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": { "raw": "{{base_url}}/auth/token/refresh/", "host": ["{{base_url}}"], "path": ["auth", "token", "refresh", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh\": \"{{refresh_token}}\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var json = pm.response.json();",
+                  "if (json.access) { pm.collectionVariables.set('access_token', json.access); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "User Profile",
+      "item": [
+        {
+          "name": "Get My Profile",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{base_url}}/users/me/", "host": ["{{base_url}}"], "path": ["users", "me", ""] }
+          }
+        },
+        {
+          "name": "Update My Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/users/me/", "host": ["{{base_url}}"], "path": ["users", "me", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"Alice\",\n  \"last_name\": \"Updated\",\n  \"phone_number\": \"+254700000001\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/users/me/change-password/", "host": ["{{base_url}}"], "path": ["users", "me", "change-password", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_password\": \"TradelinkDemo123!\",\n  \"new_password\": \"NewSecure456!\",\n  \"new_password_confirm\": \"NewSecure456!\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin – Users",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": {
+              "raw": "{{base_url}}/admin/users/?role=buyer&is_active=true&search=alice",
+              "host": ["{{base_url}}"],
+              "path": ["admin", "users", ""],
+              "query": [
+                { "key": "role", "value": "buyer", "disabled": true },
+                { "key": "is_active", "value": "true", "disabled": true },
+                { "key": "search", "value": "alice", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Retrieve User",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{base_url}}/admin/users/{{user_id}}/", "host": ["{{base_url}}"], "path": ["admin", "users", "{{user_id}}", ""] }
+          }
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": { "raw": "{{base_url}}/admin/users/{{user_id}}/", "host": ["{{base_url}}"], "path": ["admin", "users", "{{user_id}}", ""] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"vendor\",\n  \"is_active\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Delete User",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{base_url}}/admin/users/{{user_id}}/", "host": ["{{base_url}}"], "path": ["admin", "users", "{{user_id}}", ""] }
+          }
+        },
+        {
+          "name": "Activate User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{base_url}}/admin/users/{{user_id}}/activate/", "host": ["{{base_url}}"], "path": ["admin", "users", "{{user_id}}", "activate", ""] }
+          }
+        },
+        {
+          "name": "Deactivate User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{access_token}}" }],
+            "url": { "raw": "{{base_url}}/admin/users/{{user_id}}/deactivate/", "host": ["{{base_url}}"], "path": ["admin", "users", "{{user_id}}", "deactivate", ""] }
+          }
+        }
+      ]
+    }
+  ]
+}
