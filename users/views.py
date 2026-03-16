@@ -1,5 +1,6 @@
 import logging
 
+from django.contrib.auth.hashers import make_password
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter, SearchFilter
@@ -29,7 +30,7 @@ from .serializers import (
     UserProfileSerializer,
     UserProfileUpdateSerializer,
 )
-from .services import AuthService, UserService
+from .services import AuthService, SupabaseService, UserService
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +47,23 @@ class RegisterView(APIView):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        tokens = AuthService.get_tokens_for_user(user)
-        logger.info('User registered: %s', user.email)
+
+        # Also save to Supabase
+        validated_data = serializer.validated_data
+        user_data = {
+            'username': validated_data['username'],
+            'fname': validated_data.get('first_name', ''),
+            'lname': validated_data.get('last_name', ''),
+            'email_address': validated_data['email'],
+            'password_hash': make_password(validated_data['password']),
+            'gender': validated_data.get('gender'),
+            # 'date_of_birth': validated_data.get('date_of_birth'),
+            'role': validated_data['role']
+        }
+        supabase_user = SupabaseService.create_user(user_data)
+        # logger.info('User registered: %s', user.email)
         return Response(
-            {'user': UserProfileSerializer(user).data, 'tokens': tokens},
+            {'user': UserProfileSerializer(user).data},
             status=status.HTTP_201_CREATED,
         )
 

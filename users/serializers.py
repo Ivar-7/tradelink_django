@@ -9,28 +9,23 @@ from .models import User, UserRole
 logger = logging.getLogger(__name__)
 
 
-class RegisterSerializer(serializers.ModelSerializer):
-    email = serializers.EmailField(
-        validators=[UniqueValidator(queryset=User.objects.all(), message='This email is already registered.')]
-    )
+class RegisterSerializer(serializers.Serializer):
+    email = serializers.EmailField()
     username = serializers.CharField(
-        max_length=150,
-        validators=[UniqueValidator(queryset=User.objects.all(), message='This username is already taken.')]
+        max_length=150
     )
     password = serializers.CharField(write_only=True, min_length=8, validators=[validate_password])
     password_confirm = serializers.CharField(write_only=True)
-
-    class Meta:
-        model = User
-        fields = ['email', 'username', 'first_name', 'last_name', 'password', 'password_confirm',
-                  'phone_number', 'gender', 'date_of_birth', 'role']
-        extra_kwargs = {
-            'role': {'default': UserRole.BUYER},
-        }
+    first_name = serializers.CharField(max_length=150, required=False)
+    last_name = serializers.CharField(max_length=150, required=False)
+    phone_number = serializers.CharField(max_length=20, required=False)
+    gender = serializers.ChoiceField(choices=[('M', 'Male'), ('F', 'Female'), ('O', 'Other')], required=False)
+    # date_of_birth = serializers.DateField(required=False)
+    role = serializers.ChoiceField(choices=[('buyer', 'Buyer'), ('vendor', 'Vendor'), ('user', 'User')], default='buyer')
 
     def validate_role(self, value):
         # Public registration cannot self-assign admin role
-        if value == UserRole.ADMIN:
+        if value == 'admin':
             raise serializers.ValidationError('Cannot self-assign admin role.')
         return value
 
@@ -40,9 +35,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         return attrs
 
     def create(self, validated_data):
-        user = User.objects.create_user(**validated_data)
-        logger.info('New user registered: %s', user.email)
-        return user
+        # Since we're using Supabase, we'll handle creation in the view
+        # This method is kept for serializer compatibility
+        return validated_data
 
 
 class LoginSerializer(serializers.Serializer):

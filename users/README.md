@@ -1,5 +1,40 @@
 # Users App
 
+
+
+
+
+
+
+
+
+create table public.user (
+  user_id uuid not null default gen_random_uuid (),
+  username text null,
+  fname text null,
+  lname text null,
+  email_address text null,
+  password_hash text null,
+  gender text null,
+  date_of_birth date null,
+  role text null,
+  constraint user_pkey primary key (user_id),
+  constraint user_email_address_key unique (email_address),
+  constraint user_username_key unique (username)
+) TABLESPACE pg_default;
+
+
+
+
+
+
+
+
+
+
+
+
+
 Handles registration, JWT authentication, and user profile management for Tradelink.
 
 ## Quickstart

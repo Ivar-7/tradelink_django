@@ -1,9 +1,216 @@
 import logging
+import os
+from dotenv import load_dotenv
 
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
+from supabase import create_client, Client
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+
+class SupabaseService:
+    """Handles interactions with Supabase database."""
+
+    _client: Client = None
+
+    @classmethod
+    def get_client(cls) -> Client:
+        """Get or create Supabase client instance."""
+        if cls._client is None:
+            url = os.getenv("SUPABASE_URL")
+            key = os.getenv("SUPABASE_ANON_KEY")
+
+            if not url or not key:
+                raise ValueError(
+                    "SUPABASE_URL and SUPABASE_ANON_KEY must be set in environment variables"
+                )
+
+            cls._client = create_client(url, key)
+
+        return cls._client
+    @classmethod
+    def create_user(cls, user_data: dict) -> dict:
+        """Create a new user in Supabase users table."""
+        client = cls.get_client()
+        response = client.table('user').insert(user_data).execute()
+        return response.data[0] if response.data else None
+
+    @classmethod
+    def get_user(cls, user_id: str) -> dict:
+        """Get user by ID from Supabase."""
+        client = cls.get_client()
+        response = client.table('user').select('*').eq('user_id', user_id).execute()
+        return response.data[0] if response.data else None
+
+    @classmethod
+    def update_user(cls, user_id: str, user_data: dict) -> dict:
+        """Update user in Supabase."""
+        client = cls.get_client()
+        response = client.table('user').update(user_data).eq('user_id', user_id).execute()
+        return response.data[0] if response.data else None
+
+    @classmethod
+    def delete_user(cls, user_id: str) -> bool:
+        """Delete user from Supabase."""
+        client = cls.get_client()
+        response = client.table('user').delete().eq('user_id', user_id).execute()
+        return len(response.data) > 0
+
+    @classmethod
+    def get_users(cls, filters: dict = None) -> list:
+        """Get users with optional filters."""
+        client = cls.get_client()
+        query = client.table('user').select('*')
+        if filters:
+            for key, value in filters.items():
+                query = query.eq(key, value)
+        response = query.execute()
+        return response.data
+
+
+class CartService:
+    """Handles interactions with Supabase cart table."""
+
+    @classmethod
+    def get_client(cls):
+        return SupabaseService.get_client()
+
+    @classmethod
+    def create_cart(cls, cart_data: dict) -> dict:
+        """Create a new cart."""
+        client = cls.get_client()
+        response = client.table('cart').insert(cart_data).execute()
+        return response.data[0] if response.data else None
+
+    @classmethod
+    def get_cart(cls, cart_id: str) -> dict:
+        """Get cart by ID."""
+        client = cls.get_client()
+        response = client.table('cart').select('*').eq('cart_id', cart_id).execute()
+        return response.data[0] if response.data else None
+
+    @classmethod
+    def get_user_cart(cls, user_id: str) -> dict:
+        """Get active cart for user."""
+        client = cls.get_client()
+        response = client.table('cart').select('*').eq('user_id', user_id).execute()
+        return response.data[0] if response.data else None
+
+
+class CartItemService:
+    """Handles interactions with Supabase cart_item table."""
+
+    @classmethod
+    def get_client(cls):
+        return SupabaseService.get_client()
+
+    @classmethod
+    def add_item(cls, item_data: dict) -> dict:
+        """Add item to cart."""
+        client = cls.get_client()
+        response = client.table('cart_item').insert(item_data).execute()
+        return response.data[0] if response.data else None
+
+    @classmethod
+    def get_cart_items(cls, cart_id: str) -> list:
+        """Get all items in a cart."""
+        client = cls.get_client()
+        response = client.table('cart_item').select('*').eq('cart_id', cart_id).execute()
+        return response.data
+
+
+class OrderService:
+    """Handles interactions with Supabase orders table."""
+
+    @classmethod
+    def get_client(cls):
+        return SupabaseService.get_client()
+
+    @classmethod
+    def create_order(cls, order_data: dict) -> dict:
+        """Create a new order."""
+        client = cls.get_client()
+        response = client.table('orders').insert(order_data).execute()
+        return response.data[0] if response.data else None
+
+    @classmethod
+    def get_user_orders(cls, user_id: str) -> list:
+        """Get orders for a user."""
+        client = cls.get_client()
+        response = client.table('orders').select('*').eq('user_id', user_id).execute()
+        return response.data
+
+
+class ProductService:
+    """Handles interactions with Supabase product table."""
+
+    @classmethod
+    def get_client(cls):
+        return SupabaseService.get_client()
+
+    @classmethod
+    def get_products(cls, category_id: str = None) -> list:
+        """Get products, optionally filtered by category."""
+        client = cls.get_client()
+        query = client.table('product').select('*')
+        if category_id:
+            query = query.eq('category_id', category_id)
+        response = query.execute()
+        return response.data
+
+    @classmethod
+    def get_product(cls, product_id: str) -> dict:
+        """Get product by ID."""
+        client = cls.get_client()
+        response = client.table('product').select('*').eq('product_id', product_id).execute()
+        return response.data[0] if response.data else None
+
+
+class ReviewService:
+    """Handles interactions with Supabase review table."""
+
+    @classmethod
+    def get_client(cls):
+        return SupabaseService.get_client()
+
+    @classmethod
+    def create_review(cls, review_data: dict) -> dict:
+        """Create a new review."""
+        client = cls.get_client()
+        response = client.table('review').insert(review_data).execute()
+        return response.data[0] if response.data else None
+
+    @classmethod
+    def get_product_reviews(cls, product_id: str) -> list:
+        """Get reviews for a product."""
+        client = cls.get_client()
+        response = client.table('review').select('*').eq('product_id', product_id).execute()
+        return response.data
+
+
+class AddressService:
+    """Handles interactions with Supabase delivery_address table."""
+
+    @classmethod
+    def get_client(cls):
+        return SupabaseService.get_client()
+
+    @classmethod
+    def create_address(cls, address_data: dict) -> dict:
+        """Create a new delivery address."""
+        client = cls.get_client()
+        response = client.table('delivery_address').insert(address_data).execute()
+        return response.data[0] if response.data else None
+
+    @classmethod
+    def get_user_addresses(cls, user_id: str) -> list:
+        """Get addresses for a user."""
+        client = cls.get_client()
+        response = client.table('delivery_address').select('*').eq('user_id', user_id).execute()
+        return response.data
 
 
 class AuthService:

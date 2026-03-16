@@ -14,7 +14,7 @@ from .views import (
 router = DefaultRouter()
 router.register(r'admin/users', AdminUserViewSet, basename='admin-users')
 
-urlpatterns = [
+urlpatterns = [ 
     # Auth
     path('auth/register/', RegisterView.as_view(), name='auth-register'),
     path('auth/login/', LoginView.as_view(), name='auth-login'),
