@@ -1,11 +1,11 @@
 # urls.py
-from django.urls import path
-from .views import ProductCategoryView
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
+from .views import ProductCategoryViewSet
+
+router = DefaultRouter()
+router.register(r'categories', ProductCategoryViewSet, basename='product-category')
 
 urlpatterns = [
-    # List all categories or create a new one
-    path('categories/', ProductCategoryView.as_view()),
-
-    # Retrieve, update, patch, or delete a single category
-    path('categories/<str:pk>/', ProductCategoryView.as_view()),
+    path('', include(router.urls)),
 ]
