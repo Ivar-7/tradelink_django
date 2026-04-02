@@ -1,5 +1,6 @@
 import logging
 from django.contrib.auth import authenticate
+from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
@@ -7,6 +8,7 @@ from rest_framework.validators import UniqueValidator
 from .models import User, UserRole
 
 logger = logging.getLogger(__name__)
+UserModel = get_user_model()
 
 
 class RegisterSerializer(serializers.Serializer):
@@ -35,19 +37,29 @@ class RegisterSerializer(serializers.Serializer):
         return attrs
 
     def create(self, validated_data):
-        # Since we're using Supabase, we'll handle creation in the view
-        # This method is kept for serializer compatibility
-        return validated_data
+        password = validated_data.pop('password')
+        return User.objects.create_user(password=password, **validated_data)
 
 
 class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False)
+    username = serializers.CharField(required=False, allow_blank=False)
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
+        identifier = attrs.get('email') or attrs.get('username')
+        if not identifier:
+            raise serializers.ValidationError({'email': 'Email or username is required.'})
+
+        lookup_field = 'email' if attrs.get('email') else 'username'
+        try:
+            user_obj = UserModel.objects.get(**{lookup_field: identifier})
+        except UserModel.DoesNotExist:
+            raise serializers.ValidationError('Invalid email or password.')
+
         user = authenticate(
             request=self.context.get('request'),
-            username=attrs['email'],
+            username=user_obj.email,
             password=attrs['password'],
         )
         if not user:

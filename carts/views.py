@@ -3,24 +3,47 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Cart, CartItem
-from .serializers import CartSerializer, CartItemCreateUpdateSerializer
-from products.models import Product
+from .serializers import CartItemCreateUpdateSerializer
+from .services import CartItemService, CartService
+from products.services import ProductService
 
 
-def get_or_create_cart(user):
-    """Get or create cart for authenticated user."""
-    cart, _ = Cart.objects.get_or_create(user=user)
-    return cart
+def _build_cart_payload(user_id):
+    cart = CartService.get_or_create_cart(user_id)
+    items = CartItemService.list_items(cart["cart_id"])
+    total = CartService.update_total(cart["cart_id"])
+
+    normalized_items = []
+    for item in items:
+        product = ProductService.get_product(item["stock_id"])
+        unit_price = float(product.get("price", 0)) if product else 0
+        quantity = int(item.get("quantity", 0))
+        normalized_items.append(
+            {
+                "product_id": item.get("stock_id"),
+                "product_name": product.get("product_name") if product else "",
+                "product_image": product.get("image_url", "") if product else "",
+                "quantity": quantity,
+                "unit_price": unit_price,
+                "subtotal": unit_price * quantity,
+                "cart_item_id": item.get("cart_item_id"),
+            }
+        )
+
+    return {
+        "id": cart.get("cart_id"),
+        "user_id": cart.get("user_id"),
+        "date_created": cart.get("date_created"),
+        "total_price": float(total),
+        "products": normalized_items,
+    }
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def cart_list(request):
     """GET /cart/ - Retrieve user's cart."""
-    cart = get_or_create_cart(request.user)
-    serializer = CartSerializer(cart)
-    return Response(serializer.data)
+    return Response(_build_cart_payload(str(request.user.id)))
 
 
 @api_view(['POST'])
@@ -30,32 +53,30 @@ def cart_add_item(request):
     serializer = CartItemCreateUpdateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
-    cart = get_or_create_cart(request.user)
-    product = Product.objects.get(id=serializer.validated_data['product_id'])
+    user_id = str(request.user.id)
+    cart = CartService.get_or_create_cart(user_id)
+    product = ProductService.get_product(serializer.validated_data['product_id'])
     quantity = serializer.validated_data['quantity']
 
-    # Add or update cart item
-    cart_item, created = CartItem.objects.get_or_create(
-        cart=cart,
-        product=product,
-        defaults={'unit_price': product.price, 'quantity': quantity}
-    )
-    
-    if not created:
-        # If item exists, increase quantity
-        cart_item.quantity += quantity
-        cart_item.save()
+    if not product:
+        return Response({'detail': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-    return Response(CartSerializer(cart).data, status=status.HTTP_200_OK)
+    CartItemService.add_or_increment_item(
+        cart_id=cart['cart_id'],
+        stock_id=serializer.validated_data['product_id'],
+        quantity=quantity,
+        unit_price=product.get('price', 0),
+    )
+
+    return Response(_build_cart_payload(user_id), status=status.HTTP_200_OK)
 
 
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def cart_update_item(request, item_id):
     """PATCH /cart/items/{itemId}/ - Update item quantity."""
-    try:
-        cart_item = CartItem.objects.get(id=item_id, cart__user=request.user)
-    except CartItem.DoesNotExist:
+    cart_item = CartItemService.get_item(item_id)
+    if not cart_item:
         return Response(
             {'detail': 'Item not found in cart.'},
             status=status.HTTP_404_NOT_FOUND
@@ -64,38 +85,36 @@ def cart_update_item(request, item_id):
     serializer = CartItemCreateUpdateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
-    cart_item.quantity = serializer.validated_data['quantity']
-    cart_item.save()
+    updated = CartItemService.update_quantity(item_id, serializer.validated_data['quantity'])
+    if not updated:
+        return Response({'detail': 'Item not found in cart.'}, status=status.HTTP_404_NOT_FOUND)
 
-    cart = cart_item.cart
-    return Response(CartSerializer(cart).data, status=status.HTTP_200_OK)
+    return Response(_build_cart_payload(str(request.user.id)), status=status.HTTP_200_OK)
 
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
 def cart_delete_item(request, item_id):
     """DELETE /cart/items/{itemId}/ - Remove item from cart."""
-    try:
-        cart_item = CartItem.objects.get(id=item_id, cart__user=request.user)
-    except CartItem.DoesNotExist:
+    existing = CartItemService.get_item(item_id)
+    if not existing:
         return Response(
             {'detail': 'Item not found in cart.'},
             status=status.HTTP_404_NOT_FOUND
         )
 
-    cart = cart_item.cart
-    cart_item.delete()
-
-    return Response(CartSerializer(cart).data, status=status.HTTP_200_OK)
+    CartItemService.delete_item(item_id)
+    return Response(_build_cart_payload(str(request.user.id)), status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def cart_clear(request):
     """POST /cart/clear/ - Clear all items from cart."""
-    cart = get_or_create_cart(request.user)
-    cart.items.all().delete()
-    return Response(CartSerializer(cart).data, status=status.HTTP_200_OK)
+    user_id = str(request.user.id)
+    cart = CartService.get_or_create_cart(user_id)
+    CartItemService.clear(cart['cart_id'])
+    return Response(_build_cart_payload(user_id), status=status.HTTP_200_OK)
 
 
 

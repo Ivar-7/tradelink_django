@@ -47,6 +47,7 @@ class RegisterView(APIView):
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
+        tokens = AuthService.get_tokens_for_user(user)
 
         # Also save to Supabase
         validated_data = serializer.validated_data
@@ -63,7 +64,10 @@ class RegisterView(APIView):
         supabase_user = SupabaseService.create_user(user_data)
         # logger.info('User registered: %s', user.email)
         return Response(
-            {'user': UserProfileSerializer(user).data},
+            {
+                'user': UserProfileSerializer(user).data,
+                'tokens': tokens,
+            },
             status=status.HTTP_201_CREATED,
         )
 

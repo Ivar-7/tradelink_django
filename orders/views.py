@@ -1,248 +1,217 @@
-import logging
-from datetime import datetime
-from django.utils import timezone
+from datetime import datetime, timezone
+
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from carts.models import Cart
-from .models import (
-    Order, OrderItem, DeliveryAddress, OrderIssueReport, ReturnRequest,
-    OrderStatus, ReturnStatus
-)
+from carts.services import CartItemService, CartService
+from products.services import ProductService
 from .serializers import (
-    OrderSerializer, OrderListSerializer, OrderCreateSerializer,
-    OrderCancelSerializer, OrderIssueCreateSerializer, 
-    ReturnRequestCreateSerializer, DeliveryAddressSerializer
+    OrderCancelSerializer,
+    OrderCreateSerializer,
+    OrderIssueCreateSerializer,
+    ReturnRequestCreateSerializer,
 )
+from .services import DeliveryAddressService, OrderItemService, OrderService
 
-logger = logging.getLogger(__name__)
 
-
-class OrderViewSet(viewsets.ModelViewSet):
-    """
-    API for managing orders.
-    
-    Endpoints:
-    - GET /orders/ - List user's orders
-    - GET /orders/{id}/ - Get order detail
-    - POST /orders/ - Create new order (checkout)
-    - POST /orders/{id}/confirm/ - Confirm delivery
-    - POST /orders/{id}/cancel/ - Cancel order
-    - POST /orders/{id}/issue/ - Report order issue
-    - POST /orders/{id}/return/ - Request return
-    """
+class OrderViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
-    filterset_fields = ['status']
-    ordering = ['-order_date']
 
-    def get_queryset(self):
-        """Only show orders for the authenticated user (unless admin)."""
-        if self.request.user.is_staff:
-            return Order.objects.all()
-        return Order.objects.filter(user=self.request.user)
+    @staticmethod
+    def _serialize_order(order):
+        items = OrderItemService.list_order_items(order["order_id"])
+        return {
+            "id": order.get("order_id"),
+            "user_id": order.get("user_id"),
+            "order_date": order.get("order_date"),
+            "order_amount": order.get("total_amount"),
+            "products": [
+                {
+                    "product_id": i.get("stock_id"),
+                    "quantity": i.get("quantity"),
+                    "unit_price": i.get("unit_price"),
+                    "subtotal": (i.get("quantity") or 0) * float(i.get("unit_price") or 0),
+                }
+                for i in items
+            ],
+            "status": order.get("status"),
+            "shipping_method": order.get("shipping_type"),
+            "tracking_number": order.get("tracking_number"),
+            "delivered_at": order.get("delivered_at"),
+            "cancelled_at": order.get("cancelled_at"),
+            "cancellation_reason": order.get("cancellation_reason", ""),
+            "issue_report": order.get("issue_report"),
+            "return_request": order.get("return_request"),
+            "delivery_address": order.get("delivery_address"),
+        }
 
-    def get_serializer_class(self):
-        """Use appropriate serializer for each action."""
-        if self.action == 'list':
-            return OrderListSerializer
-        elif self.action == 'create':
-            return OrderCreateSerializer
-        elif self.action == 'cancel':
-            return OrderCancelSerializer
-        elif self.action == 'report_issue':
-            return OrderIssueCreateSerializer
-        elif self.action == 'request_return':
-            return ReturnRequestCreateSerializer
-        return OrderSerializer
+    def list(self, request):
+        orders = OrderService.list_orders(str(request.user.id), request.user.is_staff)
+        status_filter = request.query_params.get("status")
+        if status_filter and status_filter != "all":
+            orders = [o for o in orders if o.get("status") == status_filter]
 
-    def create(self, request, *args, **kwargs):
-        """Create a new order from cart or provided products."""
+        serialized = [self._serialize_order(order) for order in orders]
+        return Response({"orders": serialized, "total": len(serialized)})
+
+    def retrieve(self, request, pk=None):
+        order = OrderService.get_order(pk)
+        if not order:
+            return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not request.user.is_staff and order.get("user_id") != str(request.user.id):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(self._serialize_order(order))
+
+    def create(self, request):
         serializer = OrderCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # Get cart to calculate total
-        cart = Cart.objects.filter(user=request.user).first()
-        
-        # Use provided products or cart items
-        items_data = serializer.validated_data.get('products')
-        if items_data:
-            # Create items from provided data
-            total_amount = 0
-            items_to_create = []
-            for item_data in items_data:
-                product_id = item_data['product_id']
-                quantity = item_data['quantity']
-                from products.models import Product
-                product = Product.objects.get(id=product_id)
-                subtotal = product.price * quantity
-                total_amount += subtotal
-                items_to_create.append({
-                    'product': product,
-                    'product_name': product.name,
-                    'product_image': product.image_url or '',
-                    'quantity': quantity,
-                    'unit_price': product.price,
-                })
-        elif cart and cart.items.exists():
-            # Create from cart
-            total_amount = cart.total_price
-            items_to_create = [
+        user_id = str(request.user.id)
+        items_data = serializer.validated_data.get("products") or []
+
+        if not items_data:
+            cart = CartService.get_cart_by_user(user_id)
+            if cart:
+                cart_items = CartItemService.list_items(cart["cart_id"])
+                items_data = [
+                    {"product_id": item.get("stock_id"), "quantity": item.get("quantity", 1)}
+                    for item in cart_items
+                ]
+
+        if not items_data:
+            return Response({"detail": "No items to order."}, status=status.HTTP_400_BAD_REQUEST)
+
+        total_amount = 0.0
+        order_items = []
+        for item in items_data:
+            product = ProductService.get_product(str(item["product_id"]))
+            if not product:
+                return Response({"detail": "Product not found."}, status=status.HTTP_400_BAD_REQUEST)
+            qty = int(item["quantity"])
+            unit_price = float(product.get("price") or 0)
+            total_amount += unit_price * qty
+            order_items.append(
                 {
-                    'product': item.product,
-                    'product_name': item.product_name,
-                    'product_image': item.product_image,
-                    'quantity': item.quantity,
-                    'unit_price': item.unit_price,
+                    "stock_id": str(item["product_id"]),
+                    "quantity": qty,
+                    "unit_price": unit_price,
                 }
-                for item in cart.items.all()
-            ]
-        else:
-            return Response(
-                {'detail': 'No items to order.'},
-                status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Create order
-        order = Order.objects.create(
-            user=request.user,
-            order_amount=total_amount,
-            shipping_method=serializer.validated_data['shipping_method'],
-            status=OrderStatus.PENDING
-        )
+        shipping_method = serializer.validated_data["shipping_method"]
+        order_payload = {
+            "user_id": user_id,
+            "shipping_type": shipping_method,
+            "total_amount": total_amount,
+            "status": "pending",
+            "order_date": datetime.now(timezone.utc).isoformat(),
+        }
 
-        # Create order items
-        for item_data in items_to_create:
-            OrderItem.objects.create(order=order, **item_data)
-
-        # Create delivery address if provided
-        address_data = serializer.validated_data.get('delivery_address')
+        address_data = serializer.validated_data.get("delivery_address")
         if address_data:
-            DeliveryAddress.objects.create(order=order, **address_data)
+            address = DeliveryAddressService.create_address(
+                {
+                    "user_id": user_id,
+                    "country": "Kenya",
+                    "county": address_data.get("county"),
+                    "city": address_data.get("city"),
+                    "postal_address": address_data.get("postal_address"),
+                    "contact_phone": address_data.get("user_contact"),
+                }
+            )
+            if address:
+                order_payload["address_id"] = address.get("address_id")
+                order_payload["delivery_address"] = address_data
 
-        # Clear cart after order creation
+        order = OrderService.create_order(order_payload)
+        if not order:
+            return Response({"detail": "Failed to create order."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        OrderItemService.create_items([
+            {"order_id": order["order_id"], **item} for item in order_items
+        ])
+
+        cart = CartService.get_cart_by_user(user_id)
         if cart:
-            cart.items.all().delete()
+            CartItemService.clear(cart["cart_id"])
+            CartService.update_total(cart["cart_id"])
 
-        response_serializer = OrderSerializer(order)
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+        return Response(self._serialize_order(order), status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):
-        """POST /orders/{id}/confirm/ - Confirm delivery."""
-        order = self.get_object()
-        
-        if order.status == OrderStatus.CANCELLED:
-            return Response(
-                {'detail': 'Cannot confirm a cancelled order.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        order = OrderService.get_order(pk)
+        if not order:
+            return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+        if order.get("status") == "cancelled":
+            return Response({"detail": "Cannot confirm a cancelled order."}, status=status.HTTP_400_BAD_REQUEST)
 
-        order.status = OrderStatus.DELIVERED
-        order.delivered_at = timezone.now()
-        order.save()
+        updated = OrderService.update_order(
+            pk,
+            {"status": "delivered", "delivered_at": datetime.now(timezone.utc).isoformat()},
+        )
+        return Response(self._serialize_order(updated), status=status.HTTP_200_OK)
 
-        serializer = OrderSerializer(order)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
-        """POST /orders/{id}/cancel/ - Cancel order."""
-        order = self.get_object()
-
-        if order.status == OrderStatus.CANCELLED:
+        order = OrderService.get_order(pk)
+        if not order:
+            return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+        if order.get("status") in ["shipped", "delivered", "cancelled"]:
             return Response(
-                {'detail': 'Order is already cancelled.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if order.status in [OrderStatus.SHIPPED, OrderStatus.DELIVERED]:
-            return Response(
-                {'detail': f'Cannot cancel order with status {order.status}.'},
-                status=status.HTTP_400_BAD_REQUEST
+                {"detail": f"Cannot cancel order with status {order.get('status')}"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         serializer = OrderCancelSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        order.status = OrderStatus.CANCELLED
-        order.cancelled_at = timezone.now()
-        order.cancellation_reason = serializer.validated_data['reason']
-        order.save()
+        updated = OrderService.update_order(
+            pk,
+            {
+                "status": "cancelled",
+                "cancelled_at": datetime.now(timezone.utc).isoformat(),
+                "cancellation_reason": serializer.validated_data["reason"],
+            },
+        )
+        return Response(self._serialize_order(updated), status=status.HTTP_200_OK)
 
-        response_serializer = OrderSerializer(order)
-        return Response(response_serializer.data, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=["post"])
     def issue(self, request, pk=None):
-        """POST /orders/{id}/issue/ - Report order issue."""
-        order = self.get_object()
-
-        # Check if issue already exists
-        if hasattr(order, 'issue_report'):
-            return Response(
-                {'detail': 'Issue already reported for this order.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        order = OrderService.get_order(pk)
+        if not order:
+            return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
 
         serializer = OrderIssueCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        OrderIssueReport.objects.create(
-            order=order,
-            type=serializer.validated_data['type'],
-            details=serializer.validated_data['details']
+        return Response(
+            {
+                "detail": "Order issue reporting is not yet mapped to a Supabase table.",
+                "type": serializer.validated_data["type"],
+                "details": serializer.validated_data["details"],
+                "order_id": pk,
+            },
+            status=status.HTTP_501_NOT_IMPLEMENTED,
         )
 
-        response_serializer = OrderSerializer(order)
-        return Response(response_serializer.data, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=["post"])
     def request_return(self, request, pk=None):
-        """POST /orders/{id}/return/ - Request return."""
-        order = self.get_object()
-
-        # Check if return already exists
-        if hasattr(order, 'return_request'):
-            return Response(
-                {'detail': 'Return already requested for this order.'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        order = OrderService.get_order(pk)
+        if not order:
+            return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
 
         serializer = ReturnRequestCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        return_request = ReturnRequest.objects.create(
-            order=order,
-            reason=serializer.validated_data['reason'],
-            notes=serializer.validated_data.get('notes', ''),
-            requested_at=timezone.now()
+        return Response(
+            {
+                "detail": "Return requests are not yet mapped to a Supabase table.",
+                "reason": serializer.validated_data["reason"],
+                "notes": serializer.validated_data.get("notes", ""),
+                "order_id": pk,
+            },
+            status=status.HTTP_501_NOT_IMPLEMENTED,
         )
-
-        response_serializer = OrderSerializer(order)
-        return Response(response_serializer.data, status=status.HTTP_200_OK)
-
-    def list(self, request, *args, **kwargs):
-        """List orders with optional filtering by status."""
-        # Handle 'all' and status aliases from frontend
-        status_filter = request.query_params.get('status')
-        queryset = self.get_queryset()
-
-        if status_filter and status_filter != 'all':
-            # Map frontend status aliases to backend values
-            status_map = {
-                'processing': OrderStatus.CONFIRMED,
-                'returns': OrderStatus.PENDING,  # Simplified for now
-            }
-            mapped_status = status_map.get(status_filter, status_filter)
-            queryset = queryset.filter(status=mapped_status)
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({
-            'orders': serializer.data,
-            'total': queryset.count()
-        })
-
-
-# Create your views here.

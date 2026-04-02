@@ -1,13 +1,16 @@
 import uuid
-from decimal import Decimal
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
-from .models import Payment, PaymentStatus
-from .serializers import PaymentSerializer, PaymentCreateSerializer, PaymentMethodSerializer
+from .serializers import (
+    PaymentCreateSerializer,
+    PaymentMethodCreateSerializer,
+    PaymentMethodSerializer,
+)
+from .services import PaymentService
 
 
 # In-memory storage for payment methods (replace with proper DB model later)
@@ -119,25 +122,39 @@ class PaymentViewSet(ViewSet):
         serializer = PaymentCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        payment = Payment.objects.create(
-            user=request.user,
-            order_id=int(serializer.validated_data['order_id']) if serializer.validated_data['order_id'].isdigit() else None,
-            amount=serializer.validated_data['amount'],
-            payment_provider=serializer.validated_data['payment_provider'],
-            status=PaymentStatus.PENDING
+        payment = PaymentService.create_payment(
+            {
+                'user_id': str(request.user.id),
+                'order_id': serializer.validated_data['order_id'],
+                'amount': float(serializer.validated_data['amount']),
+                'payment_provider': serializer.validated_data['payment_provider'],
+                'status': 'pending',
+                'transaction_reference': str(uuid.uuid4()),
+            }
         )
 
         # TODO: Integrate with actual payment processor (M-Pesa, Stripe, etc.)
 
-        response_serializer = PaymentSerializer(payment)
-        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+        return Response(
+            {
+                'id': payment.get('payment_id'),
+                'user_id': payment.get('user_id'),
+                'order_id': payment.get('order_id'),
+                'amount': payment.get('amount'),
+                'payment_provider': payment.get('payment_provider'),
+                'status': payment.get('status'),
+                'created_at': payment.get('created_at'),
+                'phone_number': serializer.validated_data.get('phone_number', ''),
+                'payment_method_id': serializer.validated_data.get('payment_method_id', ''),
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
     @action(detail=False, methods=['get'], url_path=r'(?P<payment_id>[^/.]+)/verify', url_name='payment-verify')
     def verify_payment(self, request, payment_id=None):
         """GET /payments/{id}/verify/ - Verify payment status."""
-        try:
-            payment = Payment.objects.get(id=payment_id, user=request.user)
-        except Payment.DoesNotExist:
+        payment = PaymentService.get_payment(payment_id, str(request.user.id))
+        if not payment:
             return Response(
                 {'detail': 'Payment not found.'},
                 status=status.HTTP_404_NOT_FOUND
@@ -145,6 +162,17 @@ class PaymentViewSet(ViewSet):
 
         # TODO: Check with payment processor for actual status
 
-        serializer = PaymentSerializer(payment)
-        return Response(serializer.data)
+        return Response(
+            {
+                'id': payment.get('payment_id'),
+                'user_id': payment.get('user_id'),
+                'order_id': payment.get('order_id'),
+                'amount': payment.get('amount'),
+                'payment_provider': payment.get('payment_provider'),
+                'status': payment.get('status'),
+                'created_at': payment.get('created_at'),
+                'phone_number': '',
+                'payment_method_id': '',
+            }
+        )
 

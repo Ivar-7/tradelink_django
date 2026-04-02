@@ -5,6 +5,7 @@ Django settings for tradelink_django project.
 from pathlib import Path
 from datetime import timedelta
 from decouple import config, Csv
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -83,6 +84,14 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+SUPABASE_DB_URL = config('SUPABASE_DB_URL', default='')
+if SUPABASE_DB_URL:
+    DATABASES['default'] = dj_database_url.parse(
+        SUPABASE_DB_URL,
+        conn_max_age=600,
+        ssl_require=True,
+    )
 
 
 # Password validation
@@ -164,3 +173,7 @@ SPECTACULAR_SETTINGS = {
 # CORS
 CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='http://localhost:3000,http://127.0.0.1:3000', cast=Csv())
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r'^http://localhost(:[0-9]+)?$',
+    r'^http://127\.0\.0\.1(:[0-9]+)?$',
+]

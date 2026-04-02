@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import Cart, CartItem
-from products.models import Product
+from products.services import ProductService
 
 
 class CartItemSerializer(serializers.ModelSerializer):
@@ -25,9 +25,7 @@ class CartItemCreateUpdateSerializer(serializers.Serializer):
     quantity = serializers.IntegerField(min_value=1)
 
     def validate_product_id(self, value):
-        try:
-            Product.objects.get(id=value)
-        except Product.DoesNotExist:
+        if not ProductService.get_product(value):
             raise serializers.ValidationError("Product not found.")
         return value
 
