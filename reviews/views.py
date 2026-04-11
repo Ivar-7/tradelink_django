@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
+from drf_spectacular.utils import extend_schema
 
 from products.services import ProductService
 from .serializers import ReviewCreateSerializer
@@ -20,6 +21,8 @@ class ProductReviewViewSet(ViewSet):
     """
 
     permission_classes = [AllowAny]
+
+    REVIEW_RESPONSES = {}
 
     @staticmethod
     def _normalize(item):
@@ -57,6 +60,23 @@ class ProductReviewViewSet(ViewSet):
             avg = round(sum(float(r.get("rating_value") or 0) for r in reviews) / len(reviews), 2)
 
         return Response({"reviews": reviews, "total": len(reviews), "average_rating": avg})
+
+    @extend_schema(operation_id='v1_reviews_list')
+    def list(self, request):
+        reviews = [self._normalize(review) for review in ReviewService.list_reviews()]
+        return Response({"reviews": reviews, "total": len(reviews)})
+
+    @extend_schema(operation_id='v1_reviews_product')
+    def retrieve(self, request, pk=None):
+        product = ProductService.get_product(pk)
+        if not product:
+            return Response({"detail": "Product not found."}, status=status.HTTP_404_NOT_FOUND)
+        reviews = [
+            self._normalize(review)
+            for review in ReviewService.list_reviews()
+            if review.get("product_id") == pk
+        ]
+        return Response({"product_id": pk, "reviews": reviews, "total": len(reviews)})
 
     @action(
         detail=False,
@@ -119,3 +139,24 @@ class ProductReviewViewSet(ViewSet):
 
         ReviewService.delete_review(review_id)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="respond")
+    def respond(self, request, pk=None):
+        if not request.user.is_authenticated:
+            return Response({"detail": "Authentication required."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        response_text = request.data.get("response")
+        if not response_text:
+            return Response({"detail": "response is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        review = ReviewService.get_review(pk)
+        if not review:
+            return Response({"detail": "Review not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        self.REVIEW_RESPONSES[str(pk)] = {
+            "review_id": pk,
+            "response": response_text,
+            "responder_id": str(request.user.id),
+        }
+
+        return Response(self.REVIEW_RESPONSES[str(pk)], status=status.HTTP_201_CREATED)

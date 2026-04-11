@@ -1,4 +1,5 @@
 from rest_framework import permissions, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from .serializers import ProductCategorySerializer
@@ -91,3 +92,20 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
         if not ProductCategoryService.delete_category(pk):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=['get'], url_path='tree')
+    def tree(self, request):
+        categories = ProductCategoryService.list_categories()
+        return Response(
+            {
+                'categories': [
+                    {
+                        'id': item.get('category_id'),
+                        'name': item.get('name'),
+                        'description': item.get('description'),
+                        'children': [],
+                    }
+                    for item in categories
+                ]
+            }
+        )

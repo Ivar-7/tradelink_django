@@ -4,6 +4,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema
 
 from carts.services import CartItemService, CartService
 from products.services import ProductService
@@ -47,6 +48,7 @@ class OrderViewSet(viewsets.ViewSet):
             "delivery_address": order.get("delivery_address"),
         }
 
+    @extend_schema(operation_id='v1_orders_list')
     def list(self, request):
         orders = OrderService.list_orders(str(request.user.id), request.user.is_staff)
         status_filter = request.query_params.get("status")
@@ -56,6 +58,7 @@ class OrderViewSet(viewsets.ViewSet):
         serialized = [self._serialize_order(order) for order in orders]
         return Response({"orders": serialized, "total": len(serialized)})
 
+    @extend_schema(operation_id='v1_orders_detail')
     def retrieve(self, request, pk=None):
         order = OrderService.get_order(pk)
         if not order:
@@ -215,3 +218,67 @@ class OrderViewSet(viewsets.ViewSet):
             },
             status=status.HTTP_501_NOT_IMPLEMENTED,
         )
+
+    @action(detail=True, methods=["patch"], url_path="status")
+    def update_status(self, request, pk=None):
+        order = OrderService.get_order(pk)
+        if not order:
+            return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        new_status = request.data.get("status")
+        valid_statuses = {"new", "pending", "confirmed", "packed", "shipped", "delivered", "cancelled"}
+        if new_status not in valid_statuses:
+            return Response(
+                {"detail": "Invalid status. Use one of new, pending, confirmed, packed, shipped, delivered, cancelled."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payload = {"status": new_status}
+        if new_status == "delivered":
+            payload["delivered_at"] = datetime.now(timezone.utc).isoformat()
+        if new_status == "cancelled":
+            payload["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+            payload["cancellation_reason"] = request.data.get("reason", "Cancelled by vendor")
+
+        updated = OrderService.update_order(pk, payload)
+        return Response(self._serialize_order(updated), status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="refund")
+    def refund(self, request, pk=None):
+        order = OrderService.get_order(pk)
+        if not order:
+            return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        updated = OrderService.update_order(
+            pk,
+            {
+                "status": "cancelled",
+                "cancelled_at": datetime.now(timezone.utc).isoformat(),
+                "cancellation_reason": request.data.get("reason", "Refund processed"),
+            },
+        )
+        return Response(
+            {
+                "detail": "Refund recorded.",
+                "order": self._serialize_order(updated),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"], url_path="ship")
+    def ship(self, request, pk=None):
+        order = OrderService.get_order(pk)
+        if not order:
+            return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+        if str(order.get("status")).lower() in {"cancelled", "delivered"}:
+            return Response({"detail": "Order cannot be shipped in current state."}, status=status.HTTP_400_BAD_REQUEST)
+
+        tracking_number = request.data.get("tracking_number") or f"TRK-{pk}"
+        updated = OrderService.update_order(
+            pk,
+            {
+                "status": "shipped",
+                "tracking_number": tracking_number,
+            },
+        )
+        return Response(self._serialize_order(updated), status=status.HTTP_200_OK)

@@ -163,11 +163,36 @@ SIMPLE_JWT = {
 
 # drf-spectacular (Swagger)
 SPECTACULAR_SETTINGS = {
-    'TITLE': 'Tradelink API',
-    'DESCRIPTION': 'E-commerce marketplace API for Tradelink.',
+    'TITLE': 'Tradelink API Documentation',
+    'DESCRIPTION': 'Organized API docs for user website flows, catalog, admin dashboard, and vendor operations.',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': False,
     'COMPONENT_SPLIT_REQUEST': True,
+    'SORT_OPERATIONS': False,
+    'TAGS': [
+        {
+            'name': '1. User Website Endpoints',
+            'description': 'Public and authenticated endpoints used by the customer-facing website.',
+        },
+        {
+            'name': '2. Categories & Catalog',
+            'description': 'Catalog taxonomy endpoints for category browsing and management.',
+        },
+        {
+            'name': '3. Admin Dashboard Endpoints',
+            'description': 'Admin-only endpoints for platform management and dashboard operations.',
+        },
+        {
+            'name': '4. Vendor Endpoints',
+            'description': 'Vendor onboarding, store setup, inventory, payouts, reports, and vendor tools.',
+        },
+    ],
+    'POSTPROCESSING_HOOKS': [
+        'tradelink_django.swagger_hooks.organize_endpoint_tags',
+    ],
+    'ENUM_NAME_OVERRIDES': {
+        'UserRoleEnum': 'users.models.UserRole.choices',
+    },
 }
 
 # CORS

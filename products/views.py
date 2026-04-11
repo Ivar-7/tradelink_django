@@ -7,6 +7,9 @@ from .serializers import ProductCreateUpdateSerializer
 from .services import ProductService
 
 
+PRODUCT_IMAGES = {}
+
+
 class ProductPagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = 'limit'
@@ -35,14 +38,22 @@ class ProductViewSet(viewsets.ModelViewSet):
         return ProductCreateUpdateSerializer
 
     @staticmethod
+    def _to_smallint_price(value):
+        # Supabase product.price is configured as integer-like in current schema.
+        return int(float(value or 0))
+
+    @staticmethod
     def _normalize(item):
+        product_id = item.get('product_id')
         return {
-            'id': item.get('product_id'),
+            'id': product_id,
             'name': item.get('product_name'),
             'price': item.get('price'),
             'description': item.get('product_description', ''),
             'stock_quantity': item.get('stock', 0),
             'image_url': item.get('image_url', ''),
+            'status': item.get('status', 'draft'),
+            'images': PRODUCT_IMAGES.get(str(product_id), []),
             'category_id': item.get('category_id'),
             'vendor_id': item.get('vendor_id'),
             'vendor_name': item.get('vendor_name'),
@@ -91,7 +102,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         payload = {
             'product_name': serializer.validated_data['name'],
-            'price': float(serializer.validated_data['price']),
+            'price': self._to_smallint_price(serializer.validated_data['price']),
             'product_description': serializer.validated_data.get('description', ''),
             'stock': serializer.validated_data.get('stock_quantity', 0),
             'image_url': serializer.validated_data.get('image_url', ''),
@@ -105,7 +116,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         payload = {
             'product_name': serializer.validated_data['name'],
-            'price': float(serializer.validated_data['price']),
+            'price': self._to_smallint_price(serializer.validated_data['price']),
             'product_description': serializer.validated_data.get('description', ''),
             'stock': serializer.validated_data.get('stock_quantity', 0),
             'image_url': serializer.validated_data.get('image_url', ''),
@@ -126,6 +137,8 @@ class ProductViewSet(viewsets.ModelViewSet):
             'category_id': 'category_id',
         }
         payload = {field_map[k]: v for k, v in request.data.items() if k in field_map}
+        if 'price' in payload:
+            payload['price'] = self._to_smallint_price(payload['price'])
         updated = ProductService.update_product(pk, payload)
         if not updated:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
@@ -140,4 +153,133 @@ class ProductViewSet(viewsets.ModelViewSet):
     def search(self, request):
         """GET /products/search/ - Search products."""
         return self.list(request)
+
+    @action(detail=True, methods=['patch'], url_path='publish')
+    def publish(self, request, pk=None):
+        product = ProductService.update_product(pk, {'status': 'published'})
+        if not product:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(self._normalize(product))
+
+    @action(detail=True, methods=['patch'], url_path='archive')
+    def archive(self, request, pk=None):
+        product = ProductService.update_product(pk, {'status': 'archived'})
+        if not product:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(self._normalize(product))
+
+    @action(detail=False, methods=['post'], url_path='bulk-upload')
+    def bulk_upload(self, request):
+        products = request.data.get('products', [])
+        created = []
+        for item in products:
+            payload = {
+                'product_name': item.get('name', ''),
+                'price': self._to_smallint_price(item.get('price', 0) or 0),
+                'product_description': item.get('description', ''),
+                'stock': int(item.get('stock_quantity', 0) or 0),
+                'image_url': item.get('image_url', ''),
+                'category_id': item.get('category_id'),
+            }
+            created_item = ProductService.create_product(payload)
+            if created_item:
+                created.append(self._normalize(created_item))
+        return Response({'created': created, 'count': len(created)}, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['patch'], url_path='bulk-update')
+    def bulk_update(self, request):
+        updates = request.data.get('products', [])
+        updated_items = []
+        field_map = {
+            'name': 'product_name',
+            'price': 'price',
+            'description': 'product_description',
+            'stock_quantity': 'stock',
+            'image_url': 'image_url',
+            'category_id': 'category_id',
+            'status': 'status',
+        }
+        for item in updates:
+            product_id = item.get('id')
+            if not product_id:
+                continue
+            payload = {field_map[k]: v for k, v in item.items() if k in field_map}
+            if 'price' in payload:
+                payload['price'] = self._to_smallint_price(payload['price'])
+            updated = ProductService.update_product(product_id, payload)
+            if updated:
+                updated_items.append(self._normalize(updated))
+        return Response({'updated': updated_items, 'count': len(updated_items)})
+
+    @action(detail=True, methods=['post'], url_path='images')
+    def add_image(self, request, pk=None):
+        product = ProductService.get_product(pk)
+        if not product:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        image_url = request.data.get('image_url')
+        if not image_url:
+            return Response({'detail': 'image_url is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        import uuid
+
+        image_obj = {'id': str(uuid.uuid4()), 'image_url': image_url}
+        key = str(pk)
+        PRODUCT_IMAGES.setdefault(key, []).append(image_obj)
+        return Response(image_obj, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['delete'], url_path=r'images/(?P<image_id>[^/.]+)')
+    def delete_image(self, request, pk=None, image_id=None):
+        key = str(pk)
+        images = PRODUCT_IMAGES.get(key, [])
+        for image in images:
+            if str(image.get('id')) == str(image_id):
+                images.remove(image)
+                PRODUCT_IMAGES[key] = images
+                return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response({'detail': 'Image not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class InventoryViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def list(self, request):
+        products = ProductService.get_products({})
+        inventory = [
+            {
+                'product_id': p.get('product_id'),
+                'name': p.get('product_name'),
+                'stock_quantity': int(p.get('stock') or 0),
+                'status': 'low' if int(p.get('stock') or 0) <= 5 else 'ok',
+            }
+            for p in products
+        ]
+        return Response({'inventory': inventory, 'total': len(inventory)})
+
+    def partial_update(self, request, pk=None):
+        stock_quantity = request.data.get('stock_quantity')
+        if stock_quantity is None:
+            return Response({'detail': 'stock_quantity is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        updated = ProductService.update_product(pk, {'stock': int(stock_quantity)})
+        if not updated:
+            return Response({'detail': 'Product not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {
+                'product_id': updated.get('product_id'),
+                'stock_quantity': int(updated.get('stock') or 0),
+            }
+        )
+
+    @action(detail=False, methods=['get'], url_path='low-stock')
+    def low_stock(self, request):
+        threshold = int(request.query_params.get('threshold', 5))
+        products = ProductService.get_products({})
+        low = [
+            {
+                'product_id': p.get('product_id'),
+                'name': p.get('product_name'),
+                'stock_quantity': int(p.get('stock') or 0),
+            }
+            for p in products
+            if int(p.get('stock') or 0) <= threshold
+        ]
+        return Response({'items': low, 'total': len(low), 'threshold': threshold})
 
