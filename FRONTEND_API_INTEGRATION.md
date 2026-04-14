@@ -622,6 +622,44 @@ Request (cart checkout):
 }
 ```
 
+Response `201` (typical):
+
+```json
+{
+  "id": "order_uuid",
+  "user_id": "user_uuid",
+  "order_date": "2026-04-14T12:00:00Z",
+  "order_amount": 3500,
+  "products": [
+    {
+      "product_id": "product_uuid",
+      "quantity": 2,
+      "unit_price": 1750,
+      "subtotal": 3500
+    }
+  ],
+  "status": "pending",
+  "shipping_method": "delivery",
+  "tracking_number": null,
+  "delivered_at": null,
+  "cancelled_at": null,
+  "cancellation_reason": "",
+  "delivery_address": {
+    "county": "Nairobi",
+    "city": "Nairobi",
+    "postal_address": "00100",
+    "user_contact": "+254700000000"
+  }
+}
+```
+
+Create order error responses:
+- `400`: invalid payload (missing `shipping_method`, invalid products, bad address shape)
+- `401`: missing or invalid Bearer token
+- `404`: referenced product not found
+- `502`: upstream order/cart service failure
+- `503`: transient upstream network issue
+
 ### 8.4 Confirm Delivery
 - Method: `POST`
 - URL: `/api/v1/orders/{id}/confirm/`
@@ -663,6 +701,31 @@ Request:
   "notes": "Need replacement"
 }
 ```
+
+### 8.8 Check Order Status
+- Use `GET /api/v1/orders/{id}/` for a single order status screen.
+- Use `GET /api/v1/orders/?status=<value>` for list filtering.
+
+Common order statuses to handle in UI:
+- `pending`: order created, waiting for payment/processing
+- `processing`: vendor/system is preparing the order
+- `shipped`: order is in transit
+- `delivered`: completed successfully
+- `cancelled`: cancelled by user/system
+
+Order status page checklist:
+1. Fetch order by id.
+2. Show `status`, `order_amount`, `products`, and delivery info.
+3. If status is `pending`, show pay-now CTA.
+4. If status is `delivered`, show confirm/feedback/review actions.
+5. If status is `cancelled`, show `cancellation_reason` when present.
+
+### 8.9 Recommended Frontend Order Creation Flow
+1. Validate cart or manual products locally before submit.
+2. `POST /api/v1/orders/`.
+3. On `201`, store returned `order.id` and navigate to payment step.
+4. On `400`, show field-level errors.
+5. On `503`, retry once automatically, then show manual retry button.
 
 ## 9. Reviews
 
@@ -784,6 +847,33 @@ Response `201`:
 - URL: `/api/v1/payments/{payment_id}/verify/`
 
 Response: payment object with current status.
+
+### 10.4 Payment Status Values (Frontend)
+Treat these as the main state machine for checkout UI:
+- `pending`: payment initiated, waiting for provider confirmation
+- `completed`: payment successful
+- `failed`: payment failed
+
+### 10.5 Recommended Payment Flow
+1. Create order first with `POST /api/v1/orders/`.
+2. Create payment with `POST /api/v1/payments/` using the returned `order_id`.
+3. Save `payment.id` from response.
+4. Poll `GET /api/v1/payments/{payment_id}/verify/` every 3 to 5 seconds (max 6 attempts).
+5. If status becomes `completed`, route to success page.
+6. If status becomes `failed`, show retry payment action.
+7. If still `pending` after max attempts, show "Still processing" and allow manual refresh.
+
+Payment error responses to handle:
+- `400`: invalid payload (`order_id`, `amount`, provider fields)
+- `401`: missing/invalid Bearer token
+- `404`: payment/order not found
+- `502`: upstream payment provider/service issue
+- `503`: transient upstream network issue
+
+Provider-specific request tips:
+- For `mpesa`, always include `phone_number`.
+- For `card`, include `payment_method_id` when using stored methods.
+- Ensure `amount` matches order total shown to user.
 
 ## 11. Feedback
 
