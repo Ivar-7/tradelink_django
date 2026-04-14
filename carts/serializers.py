@@ -25,8 +25,8 @@ class CartItemCreateUpdateSerializer(serializers.Serializer):
     quantity = serializers.IntegerField(min_value=1)
 
     def validate_product_id(self, value):
-        if not ProductService.get_product(value):
-            raise serializers.ValidationError("Product not found.")
+        if not ProductService.resolve_stock_id(value):
+            raise serializers.ValidationError("Product stock not found.")
         return value
 
 

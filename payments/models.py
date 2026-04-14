@@ -14,8 +14,14 @@ class Payment(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='payments'
     )
-    # store order id directly to avoid hard dependency on orders.Order model
-    order_id = models.IntegerField(null=True, blank=True, db_index=True)
+    order = models.ForeignKey(
+        'orders.Order',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='payments',
+        db_column='order_id',
+    )
     amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00'))
     payment_provider = models.CharField(max_length=100)
     status = models.CharField(max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.PENDING)
@@ -26,5 +32,6 @@ class Payment(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f'{self.pk} - order:{self.order_id} - {self.payment_provider} - {self.amount}'
+        order_id = self.order_id if self.order_id else 'none'
+        return f'{self.pk} - order:{order_id} - {self.payment_provider} - {self.amount}'
 

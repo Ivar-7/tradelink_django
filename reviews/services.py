@@ -34,7 +34,14 @@ class ReviewService:
         return response.data if response.data else []
 
     @classmethod
-    def update_review(cls, review_id: str, user_id: str, rating_value: int, comment: Optional[str] = None) -> Dict[str, Any]:
+    def update_review(
+        cls,
+        review_id: str,
+        product_id: str,
+        user_id: str,
+        rating_value: int,
+        comment: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Fully update a review (PUT)."""
         client = SupabaseService.get_client()
         data = {

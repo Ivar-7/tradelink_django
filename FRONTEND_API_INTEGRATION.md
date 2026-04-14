@@ -256,6 +256,34 @@ Response `200`:
 
 Base: `/api/v1/products/`
 
+Frontend data contracts:
+
+```ts
+type Product = {
+  id: string;
+  name: string;
+  price: number;
+  description: string;
+  stock_quantity: number;
+  image_url: string;
+  status: string;
+  images: Array<{ id: string; image_url: string }>;
+  category_id: string | null;
+  vendor_id: string | null;
+  vendor_name: string | null;
+  average_rating: number;
+  review_count: number;
+  created_at: string | null;
+};
+
+type ProductListResponse = {
+  products: Product[];
+  total: number;
+  page: string | number;
+  limit: string | number;
+};
+```
+
 ### 6.1 List Products
 - Method: `GET`
 - URL: `/api/v1/products/`
@@ -282,6 +310,8 @@ Response `200`:
       "description": "...",
       "stock_quantity": 4,
       "image_url": "https://...",
+      "status": "draft",
+      "images": [],
       "category_id": "category_uuid",
       "vendor_id": "vendor_uuid",
       "vendor_name": "vendor_username",
@@ -296,6 +326,11 @@ Response `200`:
 }
 ```
 
+Possible error responses:
+- `400`: invalid query params
+- `404`: product not found (retrieve)
+- `500`: unexpected backend error
+
 ### 6.2 Search Products Alias
 - Method: `GET`
 - URL: `/api/v1/products/search/`
@@ -306,6 +341,8 @@ Response `200`:
 - Method: `GET`
 - URL: `/api/v1/products/{id}/`
 - Auth: Public
+
+Response `200`: single `Product` object (same shape as list items).
 
 ### 6.4 Create Product
 - Method: `POST`
@@ -339,9 +376,45 @@ Request:
 
 All cart endpoints require Bearer auth.
 
+Frontend data contracts:
+
+```ts
+type CartItem = {
+  product_id: string | null;
+  stock_id: string;
+  product_name: string;
+  product_image: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
+  cart_item_id: string;
+};
+
+type CartResponse = {
+  id: string;
+  user_id: string;
+  date_created: string;
+  total_price: number;
+  products: CartItem[];
+};
+```
+
 ### 7.1 Get Cart
 - Method: `GET`
 - URL: `/api/v1/cart/`
+
+Purpose:
+- Fetch the authenticated user's current cart and all cart items.
+- The cart items are returned in the `products` array.
+
+Required headers:
+
+```http
+Authorization: Bearer <access_token>
+```
+
+Query params:
+- None
 
 Response `200`:
 
@@ -354,6 +427,7 @@ Response `200`:
   "products": [
     {
       "product_id": "product_uuid",
+      "stock_id": "stock_uuid",
       "product_name": "Product name",
       "product_image": "https://...",
       "quantity": 2,
@@ -364,6 +438,37 @@ Response `200`:
   ]
 }
 ```
+
+How to read cart items from response:
+- Use `response.products` as the source of cart items.
+- Each item in `products` has:
+  - `cart_item_id`: unique row id for update/delete actions
+  - `product_id`: product UUID (can be null if upstream product lookup fails)
+  - `stock_id`: stock UUID used by backend foreign key
+  - `quantity`, `unit_price`, `subtotal`
+
+Empty cart response example (`200`):
+
+```json
+{
+  "id": "cart_uuid",
+  "user_id": "user_uuid",
+  "date_created": "2026-04-01T12:00:00Z",
+  "total_price": 0,
+  "products": []
+}
+```
+
+Possible error responses:
+- `401`: missing/invalid token
+- `502`: upstream DB/API failure
+- `503`: transient upstream network issue
+
+Frontend handling notes:
+1. If `products.length === 0`, show Empty Cart UI.
+2. Prefer `cart_item_id` for update/delete endpoint paths.
+3. If `503`, retry with short backoff (max 2 retries).
+4. If `502`, show retry action to user.
 
 ### 7.2 Add Item
 - Method: `POST`
@@ -378,7 +483,19 @@ Request:
 }
 ```
 
+Notes for frontend:
+- `product_id` can be either `product.product_id` or `stock.stock_id`.
+- Backend resolves this to `stock_id` internally.
+- `quantity` must be an integer `>= 1`.
+
 Response `200`: full cart payload.
+
+Error responses:
+- `400`: validation error (example: `{ "product_id": ["Product stock not found."] }`)
+- `401`: unauthorized
+- `404`: product stock not found
+- `502`: upstream DB/API failure
+- `503`: transient upstream network issue
 
 ### 7.3 Update Item Quantity
 - Method: `PATCH`
@@ -397,17 +514,31 @@ Response `200`: full cart payload.
 
 Note: `product_id` is currently validated even on quantity update, so include it.
 
+Error responses:
+- `400`, `401`, `404`, `502`, `503`
+
 ### 7.4 Delete Item
 - Method: `DELETE`
 - URL: `/api/v1/cart/items/{item_id}/delete/`
 
 Response `200`: full cart payload.
 
+Error responses:
+- `401`, `404`, `502`, `503`
+
 ### 7.5 Clear Cart
 - Method: `POST`
 - URL: `/api/v1/cart/clear/`
 
 Response `200`: empty cart payload.
+
+Error responses:
+- `401`, `502`, `503`
+
+Recommended frontend retry behavior for cart:
+1. On `503`, retry with backoff (e.g., 500ms, 1s, 2s), max 2 retries.
+2. On `502`, show a user-friendly error and allow manual retry.
+3. On `400`, show field-level message from response body.
 
 ## 8. Orders
 

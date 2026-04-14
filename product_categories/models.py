@@ -9,6 +9,14 @@ class ProductCategory(models.Model):
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
     image_url = models.URLField(blank=True)
+    parent = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='children',
+    )
+    sort_order = models.IntegerField(default=0)
 
     class Meta:
         verbose_name = 'Product Category'

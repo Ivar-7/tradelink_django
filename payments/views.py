@@ -5,11 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ViewSet
 
-from .serializers import (
-    PaymentCreateSerializer,
-    PaymentMethodCreateSerializer,
-    PaymentMethodSerializer,
-)
+from .serializers import PaymentCreateSerializer, PaymentMethodCreateSerializer
 from .services import PaymentService
 
 
@@ -125,13 +121,19 @@ class PaymentViewSet(ViewSet):
         payment = PaymentService.create_payment(
             {
                 'user_id': str(request.user.id),
-                'order_id': serializer.validated_data['order_id'],
+                'order_id': str(serializer.validated_data['order_id']),
                 'amount': float(serializer.validated_data['amount']),
                 'payment_provider': serializer.validated_data['payment_provider'],
                 'status': 'pending',
                 'transaction_reference': str(uuid.uuid4()),
             }
         )
+
+        if not payment:
+            return Response(
+                {'detail': 'Failed to create payment.'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
         # TODO: Integrate with actual payment processor (M-Pesa, Stripe, etc.)
 

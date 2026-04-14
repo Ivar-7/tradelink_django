@@ -21,6 +21,8 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
                 "name": item.get("name"),
                 "description": item.get("description"),
                 "image_url": item.get("image_url", ""),
+                "parent_id": item.get("parent_id"),
+                "sort_order": item.get("sort_order", 0),
             }
             for item in categories
         ]
@@ -36,6 +38,8 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
                 "name": category.get("name"),
                 "description": category.get("description"),
                 "image_url": category.get("image_url", ""),
+                "parent_id": category.get("parent_id"),
+                "sort_order": category.get("sort_order", 0),
             }
         )
 
@@ -45,6 +49,8 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
         category = ProductCategoryService.create_category(
             name=serializer.validated_data["name"],
             description=serializer.validated_data.get("description"),
+            parent_id=serializer.validated_data.get("parent").id if serializer.validated_data.get("parent") else None,
+            sort_order=serializer.validated_data.get("sort_order", 0),
         )
         return Response(
             {
@@ -52,6 +58,8 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
                 "name": category.get("name"),
                 "description": category.get("description"),
                 "image_url": category.get("image_url", ""),
+                "parent_id": category.get("parent_id"),
+                "sort_order": category.get("sort_order", 0),
             },
             status=status.HTTP_201_CREATED,
         )
@@ -63,6 +71,8 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
             category_id=pk,
             name=serializer.validated_data["name"],
             description=serializer.validated_data.get("description"),
+            parent_id=serializer.validated_data.get("parent").id if serializer.validated_data.get("parent") else None,
+            sort_order=serializer.validated_data.get("sort_order", 0),
         )
         if not category:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -72,6 +82,8 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
                 "name": category.get("name"),
                 "description": category.get("description"),
                 "image_url": category.get("image_url", ""),
+                "parent_id": category.get("parent_id"),
+                "sort_order": category.get("sort_order", 0),
             }
         )
 
@@ -85,6 +97,8 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
                 "name": category.get("name"),
                 "description": category.get("description"),
                 "image_url": category.get("image_url", ""),
+                "parent_id": category.get("parent_id"),
+                "sort_order": category.get("sort_order", 0),
             }
         )
 
@@ -96,16 +110,35 @@ class ProductCategoryViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='tree')
     def tree(self, request):
         categories = ProductCategoryService.list_categories()
+        by_id = {
+            item.get('category_id'): {
+                'id': item.get('category_id'),
+                'name': item.get('name'),
+                'description': item.get('description'),
+                'parent_id': item.get('parent_id'),
+                'sort_order': item.get('sort_order', 0),
+                'children': [],
+            }
+            for item in categories
+        }
+
+        roots = []
+        for node in by_id.values():
+            parent_id = node.get('parent_id')
+            if parent_id and parent_id in by_id:
+                by_id[parent_id]['children'].append(node)
+            else:
+                roots.append(node)
+
+        def sort_tree(nodes):
+            nodes.sort(key=lambda n: (n.get('sort_order', 0), str(n.get('name') or '').lower()))
+            for child in nodes:
+                sort_tree(child['children'])
+
+        sort_tree(roots)
+
         return Response(
             {
-                'categories': [
-                    {
-                        'id': item.get('category_id'),
-                        'name': item.get('name'),
-                        'description': item.get('description'),
-                        'children': [],
-                    }
-                    for item in categories
-                ]
+                'categories': roots
             }
         )

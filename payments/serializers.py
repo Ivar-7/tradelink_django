@@ -33,19 +33,20 @@ class PaymentMethodCreateSerializer(serializers.Serializer):
 class PaymentSerializer(serializers.ModelSerializer):
     """Serializer for payment."""
     user_id = serializers.CharField(source='user.id', read_only=True)
+    order_id = serializers.CharField(source='order.id', read_only=True)
 
     class Meta:
         model = Payment
         fields = [
             'id', 'user_id', 'order_id', 'amount', 'payment_provider',
-            'status', 'created_at', 'phone_number', 'payment_method_id'
+            'status', 'created_at'
         ]
         read_only_fields = ['id', 'user_id', 'created_at']
 
 
 class PaymentCreateSerializer(serializers.Serializer):
     """Serializer for creating payment."""
-    order_id = serializers.CharField()
+    order_id = serializers.UUIDField()
     payment_provider = serializers.ChoiceField(choices=['mpesa', 'card', 'bank_transfer'])
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal('0.01'))
     payment_method_id = serializers.CharField(required=False, allow_blank=True)
