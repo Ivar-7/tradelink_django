@@ -1,6 +1,5 @@
 import logging
-from django.contrib.auth import authenticate
-from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
@@ -11,64 +10,124 @@ logger = logging.getLogger(__name__)
 UserModel = get_user_model()
 
 
+# ─────────────────────────────────────────────
+# REGISTER
+# ─────────────────────────────────────────────
+
 class RegisterSerializer(serializers.Serializer):
-    email = serializers.EmailField()
-    username = serializers.CharField(
-        max_length=150
+    email = serializers.EmailField(
+        validators=[UniqueValidator(queryset=User.objects.all(), message="Email already exists.")]
     )
-    password = serializers.CharField(write_only=True, min_length=8, validators=[validate_password])
-    password_confirm = serializers.CharField(write_only=True)
-    first_name = serializers.CharField(max_length=150, required=False)
-    last_name = serializers.CharField(max_length=150, required=False)
-    phone_number = serializers.CharField(max_length=20, required=False)
-    gender = serializers.ChoiceField(choices=[('M', 'Male'), ('F', 'Female'), ('O', 'Other')], required=False)
-    # date_of_birth = serializers.DateField(required=False)
-    role = serializers.ChoiceField(choices=[('buyer', 'Buyer'), ('vendor', 'Vendor'), ('user', 'User')], default='buyer')
+
+    username = serializers.CharField(
+        max_length=150,
+        validators=[UniqueValidator(queryset=User.objects.all(), message="Username already taken.")]
+    )
+
+    password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        validators=[validate_password]
+    )
+
+    # ✅ FIX 1: OPTIONAL NOW
+    password_confirm = serializers.CharField(write_only=True, required=False)
+
+    # ✅ FIX 2: ALLOW BLANK
+    first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+
+    phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
+
+    gender = serializers.ChoiceField(
+        choices=[('M', 'Male'), ('F', 'Female'), ('O', 'Other')],
+        required=False
+    )
+
+    role = serializers.ChoiceField(
+        choices=[('buyer', 'Buyer'), ('vendor', 'Vendor'), ('user', 'User')],
+        default='buyer'
+    )
+
+    # ─────────────────────────────
+    # VALIDATION
+    # ─────────────────────────────
 
     def validate_role(self, value):
-        # Public registration cannot self-assign admin role
         if value == 'admin':
             raise serializers.ValidationError('Cannot self-assign admin role.')
         return value
 
     def validate(self, attrs):
-        if attrs['password'] != attrs.pop('password_confirm'):
-            raise serializers.ValidationError({'password_confirm': 'Passwords do not match.'})
+        password = attrs.get('password')
+        password_confirm = attrs.get('password_confirm')
+
+        # ✅ FIX 3: Only check IF provided
+        if password_confirm is not None and password != password_confirm:
+            raise serializers.ValidationError({
+                'password_confirm': 'Passwords do not match.'
+            })
+
         return attrs
 
-    def create(self, validated_data):
-        password = validated_data.pop('password')
-        return User.objects.create_user(password=password, **validated_data)
+    # ─────────────────────────────
+    # CREATE USER
+    # ─────────────────────────────
 
+    def create(self, validated_data):
+        validated_data.pop('password_confirm', None)
+
+        password = validated_data.pop('password')
+
+        user = User.objects.create_user(
+            password=password,
+            **validated_data
+        )
+
+        return user
+
+
+# ─────────────────────────────────────────────
+# LOGIN
+# ─────────────────────────────────────────────
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField(required=False)
-    username = serializers.CharField(required=False, allow_blank=False)
+    username = serializers.CharField(required=False)
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
         identifier = attrs.get('email') or attrs.get('username')
+
         if not identifier:
-            raise serializers.ValidationError({'email': 'Email or username is required.'})
+            raise serializers.ValidationError({'detail': 'Email or username is required.'})
 
         lookup_field = 'email' if attrs.get('email') else 'username'
+
         try:
             user_obj = UserModel.objects.get(**{lookup_field: identifier})
         except UserModel.DoesNotExist:
-            raise serializers.ValidationError('Invalid email or password.')
+            raise serializers.ValidationError({'detail': 'Invalid credentials.'})
 
         user = authenticate(
             request=self.context.get('request'),
             username=user_obj.email,
             password=attrs['password'],
         )
+
         if not user:
-            raise serializers.ValidationError('Invalid email or password.')
+            raise serializers.ValidationError({'detail': 'Invalid credentials.'})
+
         if not user.is_active:
-            raise serializers.ValidationError('This account has been deactivated.')
+            raise serializers.ValidationError({'detail': 'Account is deactivated.'})
+
         attrs['user'] = user
         return attrs
 
+
+# ─────────────────────────────────────────────
+# PROFILE
+# ─────────────────────────────────────────────
 
 class UserProfileSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
@@ -85,7 +144,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
 class UserProfileUpdateSerializer(serializers.ModelSerializer):
     username = serializers.CharField(
         max_length=150,
-        validators=[UniqueValidator(queryset=User.objects.all(), message='This username is already taken.')]
+        validators=[UniqueValidator(queryset=User.objects.all(), message='Username already taken.')]
     )
 
     class Meta:
@@ -93,25 +152,42 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
         fields = ['username', 'first_name', 'last_name', 'phone_number', 'gender', 'date_of_birth']
 
 
+# ─────────────────────────────────────────────
+# PASSWORD
+# ─────────────────────────────────────────────
+
 class ChangePasswordSerializer(serializers.Serializer):
     current_password = serializers.CharField(write_only=True)
-    new_password = serializers.CharField(write_only=True, min_length=8, validators=[validate_password])
+
+    new_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        validators=[validate_password]
+    )
+
     new_password_confirm = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
         if attrs['new_password'] != attrs['new_password_confirm']:
-            raise serializers.ValidationError({'new_password_confirm': 'Passwords do not match.'})
+            raise serializers.ValidationError({
+                'new_password_confirm': 'Passwords do not match.'
+            })
         return attrs
 
     def validate_current_password(self, value):
         user = self.context['request'].user
+
         if not user.check_password(value):
             raise serializers.ValidationError('Current password is incorrect.')
+
         return value
 
 
+# ─────────────────────────────────────────────
+# ADMIN
+# ─────────────────────────────────────────────
+
 class AdminUserSerializer(serializers.ModelSerializer):
-    """Full user representation for admin use."""
     full_name = serializers.CharField(read_only=True)
 
     class Meta:
@@ -127,8 +203,16 @@ class AdminUserSerializer(serializers.ModelSerializer):
 class AdminUserUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['first_name', 'last_name', 'phone_number', 'gender', 'date_of_birth', 'role', 'is_active', 'is_staff']
+        fields = [
+            'first_name', 'last_name', 'phone_number',
+            'gender', 'date_of_birth', 'role',
+            'is_active', 'is_staff'
+        ]
 
+
+# ─────────────────────────────────────────────
+# LOGOUT
+# ─────────────────────────────────────────────
 
 class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
