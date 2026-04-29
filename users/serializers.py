@@ -50,7 +50,7 @@ class RegisterSerializer(serializers.Serializer):
     )
 
     # ─────────────────────────────
-    # VALIDATION
+    # VALIDATIONc
     # ─────────────────────────────
 
     def validate_role(self, value):
