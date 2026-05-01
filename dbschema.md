@@ -177,6 +177,28 @@ CREATE TABLE public.user_feedback (
   CONSTRAINT user_feedback_pkey PRIMARY KEY (feedback_id),
   CONSTRAINT user_feedback_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user(user_id)
 );
+CREATE TABLE public.vendor_payment_channel (
+  channel_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  vendor_id uuid NOT NULL,
+  channel_type text NOT NULL CHECK (channel_type = ANY (ARRAY['mpesa_till'::text, 'mpesa_paybill'::text, 'bank_transfer'::text, 'paypal'::text, 'stripe'::text, 'mobile_money'::text])),
+  channel_name text NOT NULL,
+  account_number text,
+  account_name text,
+  bank_name text,
+  bank_branch text,
+  swift_code text,
+  phone_number text,
+  is_primary boolean DEFAULT false,
+  is_verified boolean DEFAULT false,
+  verification_doc_url text,
+  status text DEFAULT 'active'::text,
+  country text DEFAULT 'KE'::text,
+  currency text DEFAULT 'KES'::text,
+  created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT vendor_payment_channel_pkey PRIMARY KEY (channel_id),
+  CONSTRAINT vendor_payment_channel_vendor_id_fkey FOREIGN KEY (vendor_id) REFERENCES public.vendor_profile(vendor_id)
+);
 CREATE TABLE public.vendor_payouts (
   payout_id uuid NOT NULL DEFAULT gen_random_uuid(),
   vendor_id uuid,
@@ -186,8 +208,14 @@ CREATE TABLE public.vendor_payouts (
   reference_code text,
   requested_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
   processed_at timestamp without time zone,
+  payment_channel_id uuid,
+  payout_provider text,
+  provider_reference text,
+  provider_status text,
+  failure_reason text,
   CONSTRAINT vendor_payouts_pkey PRIMARY KEY (payout_id),
-  CONSTRAINT vendor_payouts_vendor_id_fkey FOREIGN KEY (vendor_id) REFERENCES public.vendor_profile(vendor_id)
+  CONSTRAINT vendor_payouts_vendor_id_fkey FOREIGN KEY (vendor_id) REFERENCES public.vendor_profile(vendor_id),
+  CONSTRAINT vendor_payouts_payment_channel_id_fkey FOREIGN KEY (payment_channel_id) REFERENCES public.vendor_payment_channel(channel_id)
 );
 CREATE TABLE public.vendor_profile (
   vendor_id uuid NOT NULL DEFAULT gen_random_uuid(),

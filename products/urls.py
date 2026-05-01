@@ -1,15 +1,15 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter, SimpleRouter
 
-from .views import InventoryViewSet, ProductViewSet
+
+from .views_ecommerce import ProductBrowseViewSet, VendorProductViewSet
 
 router = DefaultRouter()
-router.register(r'products', ProductViewSet, basename='product')
+router.register(r'products/browse', ProductBrowseViewSet, basename='product-browse')
+router.register(r'vendor/products', VendorProductViewSet, basename='vendor-product')
 
 inventory_router = SimpleRouter()
-inventory_router.register(r'inventory', InventoryViewSet, basename='inventory')
 
 urlpatterns = [
 	path('', include(router.urls)),
-	path('', include(inventory_router.urls)),
 ]

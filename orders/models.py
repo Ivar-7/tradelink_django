@@ -6,8 +6,10 @@ from django.db import models
 
 class OrderStatus(models.TextChoices):
     PENDING = 'pending', 'Pending'
+    PROCESSING = 'processing', 'Processing'
     CONFIRMED = 'confirmed', 'Confirmed'
     SHIPPED = 'shipped', 'Shipped'
+    OUT_FOR_DELIVERY = 'out_for_delivery', 'Out for Delivery'
     DELIVERED = 'delivered', 'Delivered'
     CANCELLED = 'cancelled', 'Cancelled'
 
@@ -79,9 +81,21 @@ class OrderItem(models.Model):
     product_image = models.URLField(blank=True)
     quantity = models.PositiveIntegerField()
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    # CRITICAL: Links this item to the vendor who sold it
+    vendor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='sold_items',
+        null=True,
+        blank=True
+    )
 
     class Meta:
         ordering = ['id']
+        indexes = [
+            models.Index(fields=['order']),
+            models.Index(fields=['vendor']),
+        ]
 
     def __str__(self):
         return f'{self.product_name} (qty: {self.quantity})'
@@ -91,8 +105,126 @@ class OrderItem(models.Model):
         return str(self.product.id) if self.product else None
 
     @property
+    def vendor_id(self):
+        return str(self.vendor.id) if self.vendor else None
+
+    @property
     def subtotal(self):
         return self.quantity * self.unit_price
+
+
+class OrderSuborder(models.Model):
+    """Suborder for each vendor in a multi-vendor order."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name='suborders'
+    )
+    vendor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='vendor_suborders'
+    )
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(
+        max_length=20,
+        choices=OrderStatus.choices,
+        default=OrderStatus.PENDING
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        unique_together = ('order', 'vendor')
+        indexes = [
+            models.Index(fields=['vendor', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f'Suborder {self.id} - Vendor {self.vendor.email}'
+
+
+class Shipment(models.Model):
+    """Shipment tracking for an order."""
+    SHIPMENT_STATUS = [
+        ('pending', 'Pending'),
+        ('shipped', 'Shipped'),
+        ('in_transit', 'In Transit'),
+        ('delivered', 'Delivered'),
+        ('failed', 'Failed'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.OneToOneField(
+        Order,
+        on_delete=models.CASCADE,
+        related_name='shipment'
+    )
+    external_package_id = models.CharField(max_length=255, blank=True)
+    tracking_number = models.CharField(max_length=255, unique=True)
+    delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    status = models.CharField(max_length=20, choices=SHIPMENT_STATUS, default='pending')
+    pickup_time = models.DateTimeField(null=True, blank=True)
+    last_update_time = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['tracking_number']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return f'Shipment {self.tracking_number} - {self.status}'
+
+
+class OrderStatusHistory(models.Model):
+    """Audit trail for order and suborder status transitions."""
+    ROLE_CHOICES = [
+        ('buyer', 'Buyer'),
+        ('vendor', 'Vendor'),
+        ('admin', 'Admin'),
+        ('system', 'System'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name='status_history'
+    )
+    suborder = models.ForeignKey(
+        OrderSuborder,
+        on_delete=models.CASCADE,
+        related_name='status_history',
+        null=True,
+        blank=True
+    )
+    old_status = models.CharField(max_length=20)
+    new_status = models.CharField(max_length=20)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='order_status_changes'
+    )
+    changed_by_role = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    notes = models.TextField(blank=True)
+    location = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['order', '-created_at']),
+            models.Index(fields=['suborder', '-created_at']),
+            models.Index(fields=['changed_by_role']),
+        ]
+
+    def __str__(self):
+        return f'{self.order_id}: {self.old_status} -> {self.new_status}'
 
 
 class DeliveryAddress(models.Model):

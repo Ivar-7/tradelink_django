@@ -263,3 +263,142 @@ class UserService:
         user.save(update_fields=['is_active'])
         state = 'activated' if active else 'deactivated'
         logger.info('User %s %s by admin.', user.email, state)
+
+
+class AdminVendorService:
+    """Handles admin vendor management operations."""
+
+    @staticmethod
+    def verify_vendor(vendor_profile, is_verified: bool, admin_user, notes: str = ''):
+        """Verify or reject a vendor application."""
+        from django.utils import timezone
+        
+        vendor_profile.is_verified = is_verified
+        if is_verified:
+            vendor_profile.verified_at = timezone.now()
+        vendor_profile.save()
+        
+        # Log action
+        AuditLogService.log_action(
+            admin_user,
+            'vendor_verify' if is_verified else 'vendor_reject',
+            'vendor',
+            vendor_profile.id,
+            f'Vendor {"approved" if is_verified else "rejected"}. Notes: {notes}'
+        )
+        
+        logger.info('Vendor %s %s by admin %s', 
+                   vendor_profile.user.email, 
+                   'verified' if is_verified else 'rejected',
+                   admin_user.email)
+        return vendor_profile
+
+    @staticmethod
+    def suspend_vendor(vendor_profile, reason: str, duration_days: int, admin_user):
+        """Suspend a vendor account."""
+        from datetime import timedelta
+        from django.utils import timezone
+        
+        vendor_profile.is_suspended = True
+        vendor_profile.suspension_reason = reason
+        vendor_profile.suspended_at = timezone.now()
+        vendor_profile.suspension_expires_at = timezone.now() + timedelta(days=duration_days)
+        vendor_profile.save()
+        
+        # Log action
+        AuditLogService.log_action(
+            admin_user,
+            'vendor_suspend',
+            'vendor',
+            vendor_profile.id,
+            f'Suspended for {duration_days} days. Reason: {reason}'
+        )
+        
+        logger.info('Vendor %s suspended by admin %s', 
+                   vendor_profile.user.email,
+                   admin_user.email)
+        return vendor_profile
+
+    @staticmethod
+    def activate_vendor(vendor_profile, admin_user):
+        """Reactivate a suspended vendor account."""
+        from django.utils import timezone
+        
+        vendor_profile.is_suspended = False
+        vendor_profile.suspension_reason = ''
+        vendor_profile.suspended_at = None
+        vendor_profile.suspension_expires_at = None
+        vendor_profile.save()
+        
+        # Log action
+        AuditLogService.log_action(
+            admin_user,
+            'vendor_activate',
+            'vendor',
+            vendor_profile.id,
+            'Vendor reactivated'
+        )
+        
+        logger.info('Vendor %s activated by admin %s', 
+                   vendor_profile.user.email,
+                   admin_user.email)
+        return vendor_profile
+
+    @staticmethod
+    def assign_dropoff_station(vendor_profile, station_id, admin_user, reason: str = ''):
+        """Assign a pickup station to vendor."""
+        vendor_profile.default_dropoff_station_id = station_id
+        vendor_profile.save()
+        
+        # Log action
+        AuditLogService.log_action(
+            admin_user,
+            'other',
+            'vendor',
+            vendor_profile.id,
+            f'Assigned pickup station {station_id}. Reason: {reason}'
+        )
+        
+        logger.info('Vendor %s assigned to station %s by admin %s', 
+                   vendor_profile.user.email,
+                   station_id,
+                   admin_user.email)
+        return vendor_profile
+
+
+class AuditLogService:
+    """Handles admin audit logging."""
+
+    @staticmethod
+    def log_action(admin_user, action: str, target_type: str, target_id, 
+                   details: str = '', ip_address: str = None):
+        """Log an admin action for audit trail."""
+        from users.models import AdminAuditLog
+        
+        log_entry = AdminAuditLog.objects.create(
+            admin=admin_user,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            details=details,
+            ip_address=ip_address
+        )
+        
+        logger.info('Admin action logged: %s by %s', action, admin_user.email)
+        return log_entry
+
+    @staticmethod
+    def get_logs(admin_user=None, action=None, target_type=None, limit=100):
+        """Retrieve audit logs with optional filters."""
+        from users.models import AdminAuditLog
+        
+        query = AdminAuditLog.objects.all()
+        
+        if admin_user:
+            query = query.filter(admin=admin_user)
+        if action:
+            query = query.filter(action=action)
+        if target_type:
+            query = query.filter(target_type=target_type)
+        
+        return query[:limit]

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.utils import timezone
 from .models import (
-    Order, OrderItem, DeliveryAddress, OrderIssueReport, ReturnRequest,
+    Order, OrderItem, OrderSuborder, Shipment, OrderStatusHistory, DeliveryAddress, OrderIssueReport, ReturnRequest,
     OrderStatus, ShippingMethod
 )
 
@@ -9,11 +9,46 @@ from .models import (
 class OrderItemSerializer(serializers.ModelSerializer):
     """Serializer for order items."""
     product_id = serializers.CharField(source='product.id', read_only=True)
+    vendor_id = serializers.CharField(source='vendor.id', read_only=True)
+    vendor_name = serializers.CharField(source='vendor.username', read_only=True)
     
     class Meta:
         model = OrderItem
-        fields = ['product_id', 'product_name', 'product_image', 'quantity', 'unit_price', 'subtotal']
+        fields = ['product_id', 'product_name', 'product_image', 'quantity', 'unit_price', 'subtotal', 'vendor_id', 'vendor_name']
         read_only_fields = fields
+class OrderSuborderSerializer(serializers.ModelSerializer):
+    """Serializer for order suborder (per vendor)."""
+    vendor_id = serializers.CharField(source='vendor.id', read_only=True)
+    vendor_name = serializers.CharField(source='vendor.username', read_only=True)
+    
+    class Meta:
+        model = OrderSuborder
+        fields = ['id', 'vendor_id', 'vendor_name', 'subtotal', 'status', 'created_at']
+        read_only_fields = fields
+
+
+class ShipmentSerializer(serializers.ModelSerializer):
+    """Serializer for shipment tracking."""
+    class Meta:
+        model = Shipment
+        fields = ['id', 'tracking_number', 'status', 'delivery_fee', 'pickup_time', 'created_at', 'last_update_time']
+        read_only_fields = fields
+
+
+class OrderStatusHistorySerializer(serializers.ModelSerializer):
+    """Serializer for order status history entries."""
+    changed_by_email = serializers.CharField(source='changed_by.email', read_only=True)
+    suborder_id = serializers.CharField(source='suborder.id', read_only=True, allow_null=True)
+
+    class Meta:
+        model = OrderStatusHistory
+        fields = [
+            'id', 'order', 'suborder_id', 'old_status', 'new_status',
+            'changed_by_email', 'changed_by_role', 'notes', 'location', 'created_at'
+        ]
+        read_only_fields = fields
+
+
 
 
 class OrderItemCreateSerializer(serializers.Serializer):
@@ -70,13 +105,17 @@ class OrderSerializer(serializers.ModelSerializer):
     delivery_address = DeliveryAddressSerializer(read_only=True)
     issue_report = OrderIssueReportSerializer(read_only=True)
     return_request = ReturnRequestSerializer(read_only=True)
+    suborders = OrderSuborderSerializer(many=True, read_only=True)
+    shipment = ShipmentSerializer(read_only=True)
+    status_history = OrderStatusHistorySerializer(many=True, read_only=True)
 
     class Meta:
         model = Order
         fields = [
-            'id', 'user_id', 'order_date', 'order_amount', 'products', 'status',
-            'shipping_method', 'tracking_number', 'delivered_at', 'cancelled_at',
-            'cancellation_reason', 'issue_report', 'return_request', 'delivery_address'
+            'id', 'user_id', 'order_date', 'order_amount', 'products', 'suborders', 'status',
+            'shipping_method', 'tracking_number', 'shipment', 'delivered_at', 'cancelled_at',
+            'cancellation_reason', 'issue_report', 'return_request', 'delivery_address',
+            'status_history'
         ]
         read_only_fields = ['id', 'user_id', 'order_date', 'order_amount']
 
@@ -114,11 +153,12 @@ class OrderListSerializer(serializers.ModelSerializer):
     """Serializer for order list response."""
     user_id = serializers.CharField(source='user.id', read_only=True)
     products = OrderItemSerializer(source='items', many=True, read_only=True)
+    shipment = ShipmentSerializer(read_only=True)
 
     class Meta:
         model = Order
         fields = [
             'id', 'user_id', 'order_date', 'order_amount', 'products', 'status',
-            'shipping_method', 'tracking_number'
+            'shipping_method', 'tracking_number', 'shipment'
         ]
         read_only_fields = fields

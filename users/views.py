@@ -1,6 +1,9 @@
 import logging
 
 from django.contrib.auth.hashers import make_password
+from django.utils import timezone
+from datetime import timedelta
+import secrets
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter, SearchFilter
@@ -9,7 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 
-from .models import User
+from .models import User, VendorProfile
 from .permissions import IsAdminUser
 from .schemas import (
     admin_users_schema,
@@ -19,6 +22,16 @@ from .schemas import (
     me_retrieve_schema,
     me_update_schema,
     register_schema,
+    vendor_register_schema,
+    forgot_password_schema,
+    reset_password_schema,
+    verify_email_schema,
+    admin_vendor_verify_schema,
+    admin_vendors_list_schema,
+    admin_vendor_detail_schema,
+    admin_vendor_suspend_schema,
+    admin_vendor_activate_schema,
+    admin_vendor_assign_station_schema,
 )
 from .serializers import (
     AdminUserSerializer,
@@ -27,8 +40,17 @@ from .serializers import (
     LoginSerializer,
     LogoutSerializer,
     RegisterSerializer,
+    VendorRegisterSerializer,
+    ForgotPasswordSerializer,
+    ResetPasswordSerializer,
+    VerifyEmailSerializer,
     UserProfileSerializer,
     UserProfileUpdateSerializer,
+    VendorProfileSerializer,
+    AdminVendorListSerializer,
+    AdminVendorDetailSerializer,
+    AdminVendorSuspendSerializer,
+    AdminVendorAssignStationSerializer,
 )
 from .services import AuthService, SupabaseService, UserService
 
@@ -241,3 +263,427 @@ class AdminUserViewSet(
         user = self.get_object()
         UserService.set_active(user, False)
         return Response({'detail': f'User {user.email} deactivated.'})
+
+
+# ─────────────────────────────────────────────────────────────
+# VENDOR REGISTRATION
+# ─────────────────────────────────────────────────────────────
+
+class VendorRegisterView(APIView):
+    """Public endpoint to create a new vendor account."""
+
+    permission_classes = [AllowAny]
+
+    @vendor_register_schema
+    def post(self, request):
+        serializer = VendorRegisterSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            logger.error("VENDOR REGISTER VALIDATION ERROR: %s", serializer.errors)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = serializer.save()
+            tokens = AuthService.get_tokens_for_user(user)
+
+            logger.info("Vendor registered successfully: %s", user.email)
+
+            return Response(
+                {
+                    'user': UserProfileSerializer(user).data,
+                    'vendor_profile': VendorProfileSerializer(user.vendor_profile).data,
+                    'tokens': tokens,
+                    'message': 'Vendor account created. Awaiting admin verification.',
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        except Exception as e:
+            logger.exception("VENDOR REGISTER ERROR: %s", str(e))
+            return Response(
+                {'detail': 'Vendor registration failed. Please try again.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+# ─────────────────────────────────────────────────────────────
+# EMAIL VERIFICATION
+# ─────────────────────────────────────────────────────────────
+
+class VerifyEmailView(APIView):
+    """Verify user email address using verification token."""
+
+    permission_classes = [AllowAny]
+
+    @verify_email_schema
+    def get(self, request):
+        token = request.query_params.get('token')
+        
+        if not token:
+            return Response(
+                {'detail': 'Verification token is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = User.objects.get(email_verification_token=token)
+            
+            if user.is_email_verified:
+                return Response(
+                    {'detail': 'Email already verified.'},
+                    status=status.HTTP_200_OK
+                )
+            
+            user.is_email_verified = True
+            user.email_verification_token = None
+            user.save()
+
+            logger.info("Email verified for user: %s", user.email)
+
+            return Response(
+                {'detail': 'Email verified successfully.'},
+                status=status.HTTP_200_OK
+            )
+
+        except User.DoesNotExist:
+            return Response(
+                {'detail': 'Invalid verification token.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+# ─────────────────────────────────────────────────────────────
+# PASSWORD RESET
+# ─────────────────────────────────────────────────────────────
+
+class ForgotPasswordView(APIView):
+    """Request password reset token via email."""
+
+    permission_classes = [AllowAny]
+
+    @forgot_password_schema
+    def post(self, request):
+        serializer = ForgotPasswordSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(email=serializer.validated_data['email'])
+            
+            # Generate reset token
+            reset_token = secrets.token_urlsafe(32)
+            user.password_reset_token = reset_token
+            user.password_reset_token_expiry = timezone.now() + timedelta(hours=24)
+            user.save()
+
+            logger.info("Password reset token generated for user: %s", user.email)
+
+            # TODO: Send email with reset link
+            # For now, return token in response (NOT for production!)
+            reset_link = f"https://app.tradelink.com/reset-password?token={reset_token}"
+
+            return Response(
+                {
+                    'detail': 'Password reset link sent to email.',
+                    'reset_link': reset_link,  # Remove in production
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except Exception as e:
+            logger.exception("FORGOT PASSWORD ERROR: %s", str(e))
+            return Response(
+                {'detail': 'Error processing password reset request.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class ResetPasswordView(APIView):
+    """Reset password using reset token."""
+
+    permission_classes = [AllowAny]
+
+    @reset_password_schema
+    def post(self, request):
+        serializer = ResetPasswordSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            token = serializer.validated_data['token']
+            new_password = serializer.validated_data['new_password']
+
+            user = User.objects.get(password_reset_token=token)
+
+            # Check if token is expired
+            if (user.password_reset_token_expiry is None or 
+                timezone.now() > user.password_reset_token_expiry):
+                return Response(
+                    {'detail': 'Password reset token has expired.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            user.set_password(new_password)
+            user.password_reset_token = None
+            user.password_reset_token_expiry = None
+            user.save()
+
+            logger.info("Password reset successful for user: %s", user.email)
+
+            return Response(
+                {'detail': 'Password reset successfully. Please login with your new password.'},
+                status=status.HTTP_200_OK
+            )
+
+        except User.DoesNotExist:
+            return Response(
+                {'detail': 'Invalid password reset token.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.exception("RESET PASSWORD ERROR: %s", str(e))
+            return Response(
+                {'detail': 'Error resetting password.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+# ─────────────────────────────────────────────────────────────
+# ADMIN VENDOR VERIFICATION
+# ─────────────────────────────────────────────────────────────
+
+class AdminVendorVerifyView(APIView):
+    """Admin endpoint to verify/reject vendor applications."""
+
+    permission_classes = [IsAdminUser]
+
+    @admin_vendor_verify_schema
+    def put(self, request, vendor_id):
+        try:
+            vendor_profile = VendorProfile.objects.get(id=vendor_id)
+            
+            action_status = request.data.get('status')  # 'approved' or 'rejected'
+            notes = request.data.get('notes', '')
+
+            if action_status == 'approved':
+                vendor_profile.is_verified = True
+                vendor_profile.verified_at = timezone.now()
+                logger.info("Vendor verified: %s", vendor_profile.user.email)
+
+            elif action_status == 'rejected':
+                vendor_profile.is_verified = False
+                logger.info("Vendor rejected: %s", vendor_profile.user.email)
+
+            else:
+                return Response(
+                    {'detail': 'Invalid status. Use "approved" or "rejected".'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            vendor_profile.save()
+
+            return Response(
+                {
+                    'detail': f'Vendor {action_status}.',
+                    'vendor_profile': VendorProfileSerializer(vendor_profile).data,
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except VendorProfile.DoesNotExist:
+            return Response(
+                {'detail': 'Vendor profile not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.exception("ADMIN VENDOR VERIFY ERROR: %s", str(e))
+            return Response(
+                {'detail': 'Error verifying vendor.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+# ─────────────────────────────────────────────────────────────
+# ADMIN VENDOR MANAGEMENT
+# ─────────────────────────────────────────────────────────────
+
+class AdminVendorsListView(APIView):
+    """Admin endpoint to list all vendors with filtering."""
+
+    permission_classes = [IsAdminUser]
+
+    @admin_vendors_list_schema
+    def get(self, request):
+        vendors = VendorProfile.objects.select_related('user').all()
+        
+        # Filter by status
+        status_filter = request.query_params.get('status')
+        if status_filter == 'verified':
+            vendors = vendors.filter(is_verified=True, is_suspended=False)
+        elif status_filter == 'pending':
+            vendors = vendors.filter(is_verified=False)
+        elif status_filter == 'suspended':
+            vendors = vendors.filter(is_suspended=True)
+        
+        # Filter by vendor type
+        vendor_type = request.query_params.get('vendor_type')
+        if vendor_type:
+            vendors = vendors.filter(vendor_type=vendor_type)
+        
+        # Search
+        search = request.query_params.get('search')
+        if search:
+            vendors = vendors.filter(
+                user__email__icontains=search
+            ) | vendors.filter(
+                business_name__icontains=search
+            )
+        
+        serializer = AdminVendorListSerializer(vendors, many=True)
+        return Response({
+            'total': vendors.count(),
+            'vendors': serializer.data
+        })
+
+
+class AdminVendorDetailView(APIView):
+    """Admin endpoint to view detailed vendor information."""
+
+    permission_classes = [IsAdminUser]
+
+    @admin_vendor_detail_schema
+    def get(self, request, vendor_id):
+        try:
+            vendor_profile = VendorProfile.objects.select_related('user').get(id=vendor_id)
+            serializer = AdminVendorDetailSerializer(vendor_profile)
+            return Response(serializer.data)
+        except VendorProfile.DoesNotExist:
+            return Response(
+                {'detail': 'Vendor not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class AdminVendorSuspendView(APIView):
+    """Admin endpoint to suspend a vendor."""
+
+    permission_classes = [IsAdminUser]
+
+    @admin_vendor_suspend_schema
+    def put(self, request, vendor_id):
+        try:
+            vendor_profile = VendorProfile.objects.get(id=vendor_id)
+            
+            serializer = AdminVendorSuspendSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            reason = serializer.validated_data['reason']
+            duration_days = serializer.validated_data.get('suspend_duration_days', 30)
+            
+            from .services import AdminVendorService
+            AdminVendorService.suspend_vendor(
+                vendor_profile,
+                reason,
+                duration_days,
+                request.user
+            )
+            
+            return Response({
+                'detail': f'Vendor suspended for {duration_days} days.',
+                'vendor': VendorProfileSerializer(vendor_profile).data
+            })
+            
+        except VendorProfile.DoesNotExist:
+            return Response(
+                {'detail': 'Vendor not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.exception("SUSPEND VENDOR ERROR: %s", str(e))
+            return Response(
+                {'detail': 'Error suspending vendor.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminVendorActivateView(APIView):
+    """Admin endpoint to reactivate a suspended vendor."""
+
+    permission_classes = [IsAdminUser]
+
+    @admin_vendor_activate_schema
+    def put(self, request, vendor_id):
+        try:
+            vendor_profile = VendorProfile.objects.get(id=vendor_id)
+            
+            if not vendor_profile.is_suspended:
+                return Response(
+                    {'detail': 'Vendor is not suspended.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            from .services import AdminVendorService
+            AdminVendorService.activate_vendor(vendor_profile, request.user)
+            
+            return Response({
+                'detail': 'Vendor activated.',
+                'vendor': VendorProfileSerializer(vendor_profile).data
+            })
+            
+        except VendorProfile.DoesNotExist:
+            return Response(
+                {'detail': 'Vendor not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.exception("ACTIVATE VENDOR ERROR: %s", str(e))
+            return Response(
+                {'detail': 'Error activating vendor.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminVendorAssignStationView(APIView):
+    """Admin endpoint to assign pickup station to vendor."""
+
+    permission_classes = [IsAdminUser]
+
+    @admin_vendor_assign_station_schema
+    def put(self, request, vendor_id):
+        try:
+            vendor_profile = VendorProfile.objects.get(id=vendor_id)
+            
+            serializer = AdminVendorAssignStationSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            station_id = serializer.validated_data['station_id']
+            reason = serializer.validated_data.get('reason', '')
+            
+            from .services import AdminVendorService
+            AdminVendorService.assign_dropoff_station(
+                vendor_profile,
+                station_id,
+                request.user,
+                reason
+            )
+            
+            return Response({
+                'detail': 'Pickup station assigned.',
+                'vendor': VendorProfileSerializer(vendor_profile).data
+            })
+            
+        except VendorProfile.DoesNotExist:
+            return Response(
+                {'detail': 'Vendor not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.exception("ASSIGN STATION ERROR: %s", str(e))
+            return Response(
+                {'detail': 'Error assigning station.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

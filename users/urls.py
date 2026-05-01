@@ -9,6 +9,16 @@ from .views import (
     LogoutView,
     MeView,
     RegisterView,
+    VendorRegisterView,
+    VerifyEmailView,
+    ForgotPasswordView,
+    ResetPasswordView,
+    AdminVendorVerifyView,
+    AdminVendorsListView,
+    AdminVendorDetailView,
+    AdminVendorSuspendView,
+    AdminVendorActivateView,
+    AdminVendorAssignStationView,
 )
 from .marketplace_views import (
     AdminVendorsView,
@@ -37,9 +47,13 @@ router.register(r'admin/users', AdminUserViewSet, basename='admin-users')
 urlpatterns = [ 
     # Auth
     path('auth/register/', RegisterView.as_view(), name='auth-register'),
+    path('auth/vendor/register/', VendorRegisterView.as_view(), name='auth-vendor-register'),
     path('auth/login/', LoginView.as_view(), name='auth-login'),
     path('auth/logout/', LogoutView.as_view(), name='auth-logout'),
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='auth-token-refresh'),
+    path('auth/verify-email/', VerifyEmailView.as_view(), name='auth-verify-email'),
+    path('auth/forgot-password/', ForgotPasswordView.as_view(), name='auth-forgot-password'),
+    path('auth/reset-password/', ResetPasswordView.as_view(), name='auth-reset-password'),
 
     # User profile
     path('users/me/', MeView.as_view(), name='user-me'),
@@ -47,6 +61,12 @@ urlpatterns = [
 
     # Admin
     path('', include(router.urls)),
+    path('admin/vendors/<uuid:vendor_id>/verify/', AdminVendorVerifyView.as_view(), name='admin-vendor-verify'),
+    path('admin/vendors/', AdminVendorsListView.as_view(), name='admin-vendors-list'),
+    path('admin/vendors/<uuid:vendor_id>/', AdminVendorDetailView.as_view(), name='admin-vendor-detail'),
+    path('admin/vendors/<uuid:vendor_id>/suspend/', AdminVendorSuspendView.as_view(), name='admin-vendor-suspend'),
+    path('admin/vendors/<uuid:vendor_id>/activate/', AdminVendorActivateView.as_view(), name='admin-vendor-activate'),
+    path('admin/vendors/<uuid:vendor_id>/assign-station/', AdminVendorAssignStationView.as_view(), name='admin-vendor-assign-station'),
 
     # Vendor admission and profile
     path('vendors/apply', VendorApplyView.as_view(), name='vendor-apply'),

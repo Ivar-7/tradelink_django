@@ -4,7 +4,7 @@ from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 
-from .models import User, UserRole
+from .models import User, UserRole, VendorProfile
 
 logger = logging.getLogger(__name__)
 UserModel = get_user_model()
@@ -216,3 +216,203 @@ class AdminUserUpdateSerializer(serializers.ModelSerializer):
 
 class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
+
+
+# ─────────────────────────────────────────────
+# VENDOR REGISTRATION
+# ─────────────────────────────────────────────
+
+class VendorRegisterSerializer(serializers.Serializer):
+    email = serializers.EmailField(
+        validators=[UniqueValidator(queryset=User.objects.all(), message="Email already exists.")]
+    )
+
+    username = serializers.CharField(
+        max_length=150,
+        validators=[UniqueValidator(queryset=User.objects.all(), message="Username already taken.")]
+    )
+
+    password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        validators=[validate_password]
+    )
+
+    password_confirm = serializers.CharField(write_only=True, required=False)
+
+    first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+
+    phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
+
+    gender = serializers.ChoiceField(
+        choices=[('M', 'Male'), ('F', 'Female'), ('O', 'Other')],
+        required=False
+    )
+
+    vendor_type = serializers.ChoiceField(
+        choices=[('individual', 'Individual'), ('business', 'Business')],
+        default='individual'
+    )
+
+    business_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    verification_doc_url = serializers.URLField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        password = attrs.get('password')
+        password_confirm = attrs.get('password_confirm')
+
+        if password_confirm is not None and password != password_confirm:
+            raise serializers.ValidationError({
+                'password_confirm': 'Passwords do not match.'
+            })
+
+        return attrs
+
+    def create(self, validated_data):
+        validated_data.pop('password_confirm', None)
+        password = validated_data.pop('password')
+        
+        vendor_type = validated_data.pop('vendor_type', 'individual')
+        business_name = validated_data.pop('business_name', '')
+        verification_doc_url = validated_data.pop('verification_doc_url', '')
+
+        user = User.objects.create_user(
+            password=password,
+            role='vendor',
+            **validated_data
+        )
+
+        VendorProfile.objects.create(
+            user=user,
+            vendor_type=vendor_type,
+            business_name=business_name,
+            verification_doc_url=verification_doc_url,
+            is_verified=False
+        )
+
+        return user
+
+
+# ─────────────────────────────────────────────
+# PASSWORD RESET
+# ─────────────────────────────────────────────
+
+class ForgotPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate_email(self, value):
+        try:
+            User.objects.get(email=value)
+        except User.DoesNotExist:
+            raise serializers.ValidationError('User with this email does not exist.')
+        return value
+
+
+class ResetPasswordSerializer(serializers.Serializer):
+    token = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(
+        write_only=True,
+        min_length=8,
+        validators=[validate_password]
+    )
+    new_password_confirm = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['new_password_confirm']:
+            raise serializers.ValidationError({
+                'new_password_confirm': 'Passwords do not match.'
+            })
+        return attrs
+
+
+# ─────────────────────────────────────────────
+# EMAIL VERIFICATION
+# ─────────────────────────────────────────────
+
+class VerifyEmailSerializer(serializers.Serializer):
+    token = serializers.CharField()
+
+
+# ─────────────────────────────────────────────
+# VENDOR PROFILE
+# ─────────────────────────────────────────────
+
+class VendorProfileSerializer(serializers.ModelSerializer):
+    user_email = serializers.CharField(source='user.email', read_only=True)
+    user_username = serializers.CharField(source='user.username', read_only=True)
+
+    class Meta:
+        model = VendorProfile
+        fields = [
+            'id', 'user_email', 'user_username', 'vendor_type', 'business_name',
+            'verification_doc_url', 'is_verified', 'verified_at', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'verified_at', 'created_at', 'updated_at', 'is_verified']
+
+
+# ─────────────────────────────────────────────
+# ADMIN VENDOR MANAGEMENT
+# ─────────────────────────────────────────────
+
+class AdminVendorListSerializer(serializers.ModelSerializer):
+    user_email = serializers.CharField(source='user.email', read_only=True)
+    user_name = serializers.CharField(source='user.full_name', read_only=True)
+    status = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = VendorProfile
+        fields = [
+            'id', 'user_email', 'user_name', 'vendor_type', 'business_name',
+            'is_verified', 'is_suspended', 'status', 'created_at'
+        ]
+        read_only_fields = fields
+
+
+class AdminVendorDetailSerializer(serializers.ModelSerializer):
+    user = AdminUserSerializer(read_only=True)
+    status = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = VendorProfile
+        fields = [
+            'id', 'user', 'vendor_type', 'business_name', 'verification_doc_url',
+            'is_verified', 'verified_at', 'is_suspended', 'suspension_reason',
+            'suspended_at', 'suspension_expires_at', 'default_dropoff_station_id',
+            'status', 'created_at', 'updated_at'
+        ]
+        read_only_fields = fields
+
+
+class AdminVendorVerifySerializer(serializers.Serializer):
+    is_verified = serializers.BooleanField()
+    notes = serializers.CharField(max_length=500, required=False, allow_blank=True)
+
+
+class AdminVendorSuspendSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=500)
+    suspend_duration_days = serializers.IntegerField(
+        min_value=1,
+        max_value=365,
+        default=30
+    )
+
+
+class AdminVendorActivateSerializer(serializers.Serializer):
+    pass
+
+
+class AdminVendorAssignStationSerializer(serializers.Serializer):
+    station_id = serializers.UUIDField()
+    reason = serializers.CharField(max_length=500, required=False, allow_blank=True)
+
+
+class AdminAuditLogSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    admin_email = serializers.CharField(source='admin.email', read_only=True)
+    action = serializers.CharField(read_only=True)
+    target_type = serializers.CharField(read_only=True)
+    target_id = serializers.UUIDField(read_only=True)
+    details = serializers.CharField(read_only=True)
+    ip_address = serializers.CharField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
