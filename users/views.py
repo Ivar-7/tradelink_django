@@ -53,6 +53,8 @@ from .serializers import (
     AdminVendorAssignStationSerializer,
 )
 from .services import AuthService, SupabaseService, UserService
+from django.conf import settings
+from django.core.mail import send_mail
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,29 @@ class RegisterView(APIView):
 
         try:
             user = serializer.save()
+            # Generate and persist email verification token
+            try:
+                verification_token = secrets.token_urlsafe(32)
+                user.email_verification_token = verification_token
+                user.save(update_fields=['email_verification_token'])
+
+                # Build verification link pointing to the backend verify endpoint
+                verify_link = f"{request.scheme}://{request.get_host()}/api/v1/auth/verify-email/?token={verification_token}"
+
+                subject = 'Verify your Tradelink account'
+                message = (
+                    f"Hi {user.first_name or user.username},\n\n"
+                    f"Please verify your email address by visiting the following link:\n{verify_link}\n\n"
+                    "If you did not create an account, please ignore this message.\n"
+                )
+
+                try:
+                    send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=False)
+                    logger.info('Sent verification email to: %s', user.email)
+                except Exception as mail_exc:
+                    logger.warning('Failed to send verification email to %s: %s', user.email, str(mail_exc))
+            except Exception as token_exc:
+                logger.warning('Failed to create/send verification token: %s', str(token_exc))
             tokens = AuthService.get_tokens_for_user(user)
 
             validated_data = serializer.validated_data
@@ -380,13 +405,25 @@ class ForgotPasswordView(APIView):
             logger.info("Password reset token generated for user: %s", user.email)
 
             # TODO: Send email with reset link
-            # For now, return token in response (NOT for production!)
-            reset_link = f"https://app.tradelink.com/reset-password?token={reset_token}"
+            # Build reset link and send email (do NOT expose token in response in production)
+            reset_link = f"{request.scheme}://{request.get_host()}/api/v1/auth/reset-password/?token={reset_token}"
+
+            subject = 'Tradelink password reset request'
+            message = (
+                f"Hi {user.first_name or user.username},\n\n"
+                f"You requested a password reset. Use the link below to set a new password (valid for 24 hours):\n{reset_link}\n\n"
+                "If you did not request this, please ignore this email.\n"
+            )
+
+            try:
+                send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=False)
+                logger.info('Sent password reset email to: %s', user.email)
+            except Exception as mail_exc:
+                logger.warning('Failed to send password reset email to %s: %s', user.email, str(mail_exc))
 
             return Response(
                 {
                     'detail': 'Password reset link sent to email.',
-                    'reset_link': reset_link,  # Remove in production
                 },
                 status=status.HTTP_200_OK
             )

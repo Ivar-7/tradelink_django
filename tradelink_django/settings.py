@@ -3,6 +3,14 @@ Django settings for tradelink_django project.
 """
 
 from pathlib import Path
+import os
+try:
+    import certifi
+    # Ensure OpenSSL in this Python process uses certifi's CA bundle for verification
+    os.environ.setdefault('SSL_CERT_FILE', certifi.where())
+except Exception:
+    # certifi may not be installed; fall back to system defaults
+    pass
 from datetime import timedelta
 from decouple import config, Csv
 import dj_database_url
@@ -202,3 +210,18 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r'^http://localhost(:[0-9]+)?$',
     r'^http://127\.0\.0\.1(:[0-9]+)?$',
 ]
+
+# Email (SMTP) settings - read from environment (.env)
+EMAIL_ALLOW_INSECURE_CERTS = config('EMAIL_ALLOW_INSECURE_CERTS', default=False, cast=bool)
+EMAIL_BACKEND = (
+    'tradelink_django.email_backends.InsecureTLSEmailBackend'
+    if EMAIL_ALLOW_INSECURE_CERTS
+    else config('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
+)
+EMAIL_HOST = config('SMTP_HOST', default='localhost')
+EMAIL_PORT = config('SMTP_PORT', default=25, cast=int)
+EMAIL_HOST_USER = config('SMTP_USER', default='')
+EMAIL_HOST_PASSWORD = config('SMTP_PASS', default='')
+DEFAULT_FROM_EMAIL = config('EMAIL_FROM', default='webmaster@localhost')
+# Use TLS for port 587 by default
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)

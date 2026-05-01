@@ -5,7 +5,8 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiResponse, OpenApiParameter
+from rest_framework import serializers as s
 
 from orders.services import OrderService
 from payments.services import PaymentService
@@ -48,6 +49,33 @@ def _parse_iso(value):
 class VendorApplyView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        summary='Apply to become a vendor',
+        request=inline_serializer(
+            name='VendorApplyRequest',
+            fields={
+                'business_name': s.CharField(required=False, allow_blank=True),
+                'business_email': s.EmailField(required=False),
+                'business_phone': s.CharField(required=False, allow_blank=True),
+                'tax_id': s.CharField(required=False, allow_blank=True),
+                'review_notes': s.CharField(required=False, allow_blank=True),
+            }
+        ),
+        responses=inline_serializer(
+            name='VendorApplicationResponse',
+            fields={
+                'user_id': s.CharField(),
+                'business_name': s.CharField(),
+                'business_email': s.EmailField(),
+                'business_phone': s.CharField(),
+                'tax_id': s.CharField(),
+                'status': s.CharField(),
+                'submitted_at': s.CharField(allow_null=True),
+                'reviewed_at': s.CharField(allow_null=True),
+                'review_notes': s.CharField(allow_blank=True),
+            }
+        ),
+    )
     def post(self, request):
         user_id = str(request.user.id)
         payload = _default_vendor_application(user_id)
@@ -66,11 +94,40 @@ class VendorApplyView(APIView):
 
 class VendorApplicationView(APIView):
     permission_classes = [IsAuthenticated]
-
+    @extend_schema(
+        summary='Get vendor application for current user',
+        responses=inline_serializer(
+            name='VendorApplicationGetResponse',
+            fields={
+                'user_id': s.CharField(),
+                'business_name': s.CharField(),
+                'business_email': s.EmailField(),
+                'business_phone': s.CharField(),
+                'tax_id': s.CharField(),
+                'status': s.CharField(),
+                'submitted_at': s.CharField(allow_null=True),
+                'reviewed_at': s.CharField(allow_null=True),
+                'review_notes': s.CharField(allow_blank=True),
+            },
+        ),
+    )
     def get(self, request):
         user_id = str(request.user.id)
         return Response(VENDOR_APPLICATIONS.get(user_id, _default_vendor_application(user_id)))
-
+    @extend_schema(
+        summary='Update (patch) vendor application for current user',
+        request=inline_serializer(
+            name='VendorApplicationPatchRequest',
+            fields={
+                'business_name': s.CharField(required=False, allow_blank=True),
+                'business_email': s.EmailField(required=False),
+                'business_phone': s.CharField(required=False, allow_blank=True),
+                'tax_id': s.CharField(required=False, allow_blank=True),
+                'review_notes': s.CharField(required=False, allow_blank=True),
+            }
+        ),
+        responses=OpenApiResponse(description='Updated application object'),
+    )
     def patch(self, request):
         user_id = str(request.user.id)
         application = VENDOR_APPLICATIONS.get(user_id, _default_vendor_application(user_id))
@@ -91,6 +148,13 @@ class VendorApplicationView(APIView):
 class AdminVendorsView(APIView):
     permission_classes = [IsAdminUser]
 
+    @extend_schema(
+        summary='List vendor applications (admin)',
+        parameters=[
+            OpenApiParameter('status', description='Filter by application status', required=False, type=str),
+        ],
+        responses=OpenApiResponse(description='List of vendor applications'),
+    )
     def get(self, request):
         status_filter = request.query_params.get("status")
         applications = list(VENDOR_APPLICATIONS.values())
@@ -101,7 +165,17 @@ class AdminVendorsView(APIView):
 
 class AdminVendorStatusView(APIView):
     permission_classes = [IsAdminUser]
-
+    @extend_schema(
+        summary='Update vendor application status (admin)',
+        request=inline_serializer(
+            name='AdminVendorStatusRequest',
+            fields={
+                'status': s.ChoiceField(choices=['pending', 'submitted', 'approved', 'rejected']),
+                'review_notes': s.CharField(required=False, allow_blank=True),
+            }
+        ),
+        responses=OpenApiResponse(description='Updated application object or 404'),
+    )
     def patch(self, request, user_id):
         application = VENDOR_APPLICATIONS.get(user_id)
         if not application:
@@ -132,7 +206,21 @@ class AdminVendorStatusView(APIView):
 
 class VendorProfileView(APIView):
     permission_classes = [IsAuthenticated]
-
+    @extend_schema(
+        summary='Retrieve vendor profile for current user',
+        responses=inline_serializer(
+            name='VendorProfileResponse',
+            fields={
+                'id': s.CharField(),
+                'email': s.EmailField(),
+                'username': s.CharField(),
+                'first_name': s.CharField(),
+                'last_name': s.CharField(),
+                'phone_number': s.CharField(),
+                'role': s.CharField(),
+            }
+        ),
+    )
     def get(self, request):
         user = request.user
         return Response(
@@ -147,6 +235,19 @@ class VendorProfileView(APIView):
             }
         )
 
+    @extend_schema(
+        summary='Update vendor profile fields for current user',
+        request=inline_serializer(
+            name='VendorProfilePatchRequest',
+            fields={
+                'first_name': s.CharField(required=False, allow_blank=True),
+                'last_name': s.CharField(required=False, allow_blank=True),
+                'phone_number': s.CharField(required=False, allow_blank=True),
+                'username': s.CharField(required=False),
+            }
+        ),
+        responses=OpenApiResponse(description='Updated profile object'),
+    )
     def patch(self, request):
         user = request.user
         updatable = ["first_name", "last_name", "phone_number", "username"]
@@ -162,7 +263,20 @@ class VendorProfileView(APIView):
 
 class StoreView(APIView):
     permission_classes = [IsAuthenticated]
-
+    @extend_schema(
+        summary='Get store profile for current vendor',
+        responses=inline_serializer(
+            name='StoreProfileResponse',
+            fields={
+                'store_name': s.CharField(),
+                'description': s.CharField(),
+                'logo_url': s.CharField(),
+                'banner_url': s.CharField(),
+                'support_email': s.EmailField(),
+                'support_phone': s.CharField(),
+            }
+        ),
+    )
     def get(self, request):
         user_id = str(request.user.id)
         store = STORE_PROFILES.get(
@@ -178,6 +292,21 @@ class StoreView(APIView):
         )
         return Response(store)
 
+    @extend_schema(
+        summary='Update store profile for current vendor',
+        request=inline_serializer(
+            name='StoreProfilePatchRequest',
+            fields={
+                'store_name': s.CharField(required=False),
+                'description': s.CharField(required=False, allow_blank=True),
+                'logo_url': s.CharField(required=False, allow_blank=True),
+                'banner_url': s.CharField(required=False, allow_blank=True),
+                'support_email': s.EmailField(required=False),
+                'support_phone': s.CharField(required=False, allow_blank=True),
+            }
+        ),
+        responses=OpenApiResponse(description='Updated store object'),
+    )
     def patch(self, request):
         user_id = str(request.user.id)
         store = STORE_PROFILES.get(user_id, {})
@@ -198,7 +327,18 @@ class StoreView(APIView):
 
 class SettingsView(APIView):
     permission_classes = [IsAuthenticated]
-
+    @extend_schema(
+        summary='Get vendor settings',
+        responses=inline_serializer(
+            name='VendorSettingsResponse',
+            fields={
+                'currency': s.CharField(),
+                'timezone': s.CharField(),
+                'email_notifications': s.BooleanField(),
+                'order_auto_confirm': s.BooleanField(),
+            }
+        ),
+    )
     def get(self, request):
         user_id = str(request.user.id)
         default = {
@@ -208,7 +348,19 @@ class SettingsView(APIView):
             "order_auto_confirm": False,
         }
         return Response(USER_SETTINGS.get(user_id, default))
-
+    @extend_schema(
+        summary='Update vendor settings',
+        request=inline_serializer(
+            name='VendorSettingsPatchRequest',
+            fields={
+                'currency': s.CharField(required=False),
+                'timezone': s.CharField(required=False),
+                'email_notifications': s.BooleanField(required=False),
+                'order_auto_confirm': s.BooleanField(required=False),
+            }
+        ),
+        responses=OpenApiResponse(description='Updated settings'),
+    )
     def patch(self, request):
         user_id = str(request.user.id)
         settings_data = USER_SETTINGS.get(user_id, {})
@@ -219,7 +371,16 @@ class SettingsView(APIView):
 
 class NotificationsView(APIView):
     permission_classes = [IsAuthenticated]
-
+    @extend_schema(
+        summary='List notifications for current user',
+        responses=inline_serializer(
+            name='NotificationsListResponse',
+            fields={
+                'notifications': s.ListField(child=s.DictField()),
+                'total': s.IntegerField(),
+            }
+        ),
+    )
     def get(self, request):
         user_id = str(request.user.id)
         notifications = USER_NOTIFICATIONS.get(user_id, [])
@@ -228,7 +389,13 @@ class NotificationsView(APIView):
 
 class NotificationReadView(APIView):
     permission_classes = [IsAuthenticated]
-
+    @extend_schema(
+        summary='Mark a notification as read',
+        parameters=[
+            OpenApiParameter('notification_id', description='ID of notification to mark read', required=True, type=str)
+        ],
+        responses=OpenApiResponse(description='Updated notification object or 404'),
+    )
     def patch(self, request, notification_id):
         user_id = str(request.user.id)
         notifications = USER_NOTIFICATIONS.get(user_id, [])
@@ -242,7 +409,20 @@ class NotificationReadView(APIView):
 
 class DashboardSummaryView(APIView):
     permission_classes = [IsAuthenticated]
-
+    @extend_schema(
+        summary='Vendor dashboard summary (orders, revenue, top products)',
+        responses=inline_serializer(
+            name='DashboardSummaryResponse',
+            fields={
+                'revenueToday': s.FloatField(),
+                'ordersToday': s.IntegerField(),
+                'pendingOrders': s.IntegerField(),
+                'lowStockCount': s.IntegerField(),
+                'topProducts': s.ListField(child=s.DictField()),
+                'recentOrders': s.ListField(child=s.DictField()),
+            }
+        ),
+    )
     def get(self, request):
         user_id = str(request.user.id)
         orders = OrderService.list_orders(user_id=user_id, is_admin=request.user.is_staff)

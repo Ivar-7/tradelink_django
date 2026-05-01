@@ -1,0 +1,123 @@
+{
+  "info": {
+    "name": "Tradelink Django - Local API (Dummy Data)",
+    "_postman_id": "tradelink-local-collection-001",
+    "description": "Collection to verify existence of API endpoints. Replace `base_url` if needed.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:8000",
+      "description": "Local dev server base URL"
+    }
+  ],
+  "item": [
+    {
+      "name": "API Docs",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Accept", "value": "text/html" }
+        ],
+        "url": { "raw": "{{base_url}}/api/docs/", "host": ["{{base_url}}"], "path": ["api", "docs", ""] }
+      }
+    },
+    {
+      "name": "Products - List",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "url": { "raw": "{{base_url}}/api/v1/products/", "host": ["{{base_url}}"], "path": ["api", "v1", "products", ""] }
+      }
+    },
+    {
+      "name": "Product - Get (by id)",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/products/:id/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v1", "products", ":id", ""],
+          "variable": [ { "key": "id", "value": "1" } ]
+        }
+      }
+    },
+    {
+      "name": "Orders - List",
+      "request": {
+        "method": "GET",
+        "header": [ { "key": "Accept", "value": "application/json" } ],
+        "url": { "raw": "{{base_url}}/api/v1/orders/", "host": ["{{base_url}}"], "path": ["api", "v1", "orders", ""] }
+      }
+    },
+    {
+      "name": "Orders - Create (dummy)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"user_id\": 1,\n  \"shipping_address\": \"123 Example St, City\",\n  \"items\": [\n    { \"product_id\": 1, \"quantity\": 2 },\n    { \"product_id\": 3, \"quantity\": 1 }\n  ],\n  \"payment_method\": \"dummy\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{base_url}}/api/v1/orders/", "host": ["{{base_url}}"], "path": ["api", "v1", "orders", ""] }
+      }
+    },
+    {
+      "name": "Admin Vendors - List",
+      "request": {
+        "method": "GET",
+        "header": [ { "key": "Accept", "value": "application/json" } ],
+        "url": { "raw": "{{base_url}}/api/v1/admin/vendors/", "host": ["{{base_url}}"], "path": ["api", "v1", "admin", "vendors", ""] }
+      }
+    },
+    {
+      "name": "Admin Vendor - Get (by vendor_id)",
+      "request": {
+        "method": "GET",
+        "header": [ { "key": "Accept", "value": "application/json" } ],
+        "url": {
+          "raw": "{{base_url}}/api/v1/admin/vendors/:vendor_id/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "v1", "admin", "vendors", ":vendor_id", ""],
+          "variable": [ { "key": "vendor_id", "value": "1" } ]
+        }
+      }
+    },
+    {
+      "name": "Auth - Token (login) - Dummy",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"demo_user\",\n  \"password\": \"password123\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{base_url}}/api/v1/auth/token/", "host": ["{{base_url}}"], "path": ["api", "v1", "auth", "token", ""] }
+      }
+    },
+    {
+      "name": "Carts - Add Item (dummy)",
+      "request": {
+        "method": "POST",
+        "header": [ { "key": "Content-Type", "value": "application/json" } ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"user_id\": 1,\n  \"product_id\": 2,\n  \"quantity\": 1\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": { "raw": "{{base_url}}/api/v1/cart/add/", "host": ["{{base_url}}"], "path": ["api", "v1", "cart", "add", ""] }
+      }
+    }
+  ]
+}
