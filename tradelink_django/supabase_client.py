@@ -1,7 +1,7 @@
 import os
 
 from dotenv import load_dotenv
-from supabase import Client, create_client
+from tradelink_django.supabase_postgrest import SupabasePostgrestClient
 
 load_dotenv()
 
@@ -9,16 +9,15 @@ load_dotenv()
 class SupabaseService:
     """Shared Supabase client factory used across apps."""
 
-    _client: Client | None = None
+    _client: SupabasePostgrestClient | None = None
 
     @classmethod
-    def get_client(cls) -> Client:
+    def get_client(cls) -> SupabasePostgrestClient:
         if cls._client is None:
             url = os.getenv("SUPABASE_URL")
-            key = os.getenv("SUPABASE_ANON_KEY")
-            if not url or not key:
+            if not url:
                 raise ValueError(
-                    "SUPABASE_URL and SUPABASE_ANON_KEY must be set in environment variables"
+                    "SUPABASE_URL must be set in environment variables"
                 )
-            cls._client = create_client(url, key)
+            cls._client = SupabasePostgrestClient()
         return cls._client

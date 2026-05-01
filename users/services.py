@@ -1,74 +1,174 @@
 import logging
-import os
-from dotenv import load_dotenv
+from datetime import timedelta
+from typing import Any, Dict, Optional
 
-from rest_framework_simplejwt.exceptions import TokenError
+from django.contrib.auth.hashers import check_password, make_password
+from django.utils import timezone
 from rest_framework_simplejwt.tokens import RefreshToken
-from supabase import create_client, Client
 
-load_dotenv()
+from tradelink_django.supabase_client import SupabaseService
+from tradelink_django.supabase_postgrest import SupabaseAPIError
 
 logger = logging.getLogger(__name__)
 
 
-class SupabaseService:
-    """Handles interactions with Supabase database."""
+def _first_row(resp: Any) -> Optional[Dict[str, Any]]:
+    data = getattr(resp, "data", resp)
+    if isinstance(data, list):
+        return data[0] if data else None
+    if isinstance(data, dict):
+        return data
+    return None
 
-    _client: Client = None
+
+class SupabaseUserService:
+    """DB access layer for the Supabase `user` table (HTTP only)."""
+
+    table = "user"
 
     @classmethod
-    def get_client(cls) -> Client:
-        """Get or create Supabase client instance."""
-        if cls._client is None:
-            url = os.getenv("SUPABASE_URL")
-            key = os.getenv("SUPABASE_ANON_KEY")
+    def get_client(cls):
+        return SupabaseService.get_client()
 
-            if not url or not key:
-                raise ValueError(
-                    "SUPABASE_URL and SUPABASE_ANON_KEY must be set in environment variables"
-                )
-
-            cls._client = create_client(url, key)
-
-        return cls._client
     @classmethod
-    def create_user(cls, user_data: dict) -> dict:
-        """Create a new user in Supabase users table."""
+    def create_user(cls, user_data: Dict[str, Any]) -> Dict[str, Any]:
         client = cls.get_client()
-        response = client.table('user').insert(user_data).execute()
-        return response.data[0] if response.data else None
+        resp = client.table(cls.table).insert(user_data).execute()
+        row = _first_row(resp)
+        if not row:
+            raise SupabaseAPIError("User creation returned no row")
+        return row
 
     @classmethod
-    def get_user(cls, user_id: str) -> dict:
-        """Get user by ID from Supabase."""
+    def get_user_by_id(cls, user_id: str) -> Optional[Dict[str, Any]]:
         client = cls.get_client()
-        response = client.table('user').select('*').eq('user_id', user_id).execute()
-        return response.data[0] if response.data else None
+        resp = client.table(cls.table).select("*").eq("user_id", user_id).limit(1).execute()
+        return _first_row(resp)
 
     @classmethod
-    def update_user(cls, user_id: str, user_data: dict) -> dict:
-        """Update user in Supabase."""
+    def get_user_by_email(cls, email: str) -> Optional[Dict[str, Any]]:
         client = cls.get_client()
-        response = client.table('user').update(user_data).eq('user_id', user_id).execute()
-        return response.data[0] if response.data else None
+        resp = client.table(cls.table).select("*").eq("email", email).limit(1).execute()
+        return _first_row(resp)
+
+    @classmethod
+    def get_user_by_username(cls, username: str) -> Optional[Dict[str, Any]]:
+        client = cls.get_client()
+        resp = client.table(cls.table).select("*").eq("username", username).limit(1).execute()
+        return _first_row(resp)
+
+    @classmethod
+    def get_user_by_verification_token(cls, token: str) -> Optional[Dict[str, Any]]:
+        client = cls.get_client()
+        resp = (
+            client.table(cls.table)
+            .select("*")
+            .eq("email_verification_token", token)
+            .limit(1)
+            .execute()
+        )
+        return _first_row(resp)
+
+    @classmethod
+    def get_user_by_reset_token(cls, token: str) -> Optional[Dict[str, Any]]:
+        client = cls.get_client()
+        resp = (
+            client.table(cls.table)
+            .select("*")
+            .eq("password_reset_token", token)
+            .limit(1)
+            .execute()
+        )
+        return _first_row(resp)
+
+    @classmethod
+    def update_user(cls, user_id: str, user_data: Dict[str, Any]) -> Dict[str, Any]:
+        client = cls.get_client()
+        resp = client.table(cls.table).update(user_data).eq("user_id", user_id).execute()
+        row = _first_row(resp)
+        if not row:
+            # PostgREST returns [] if no row matched. Treat as not found.
+            raise SupabaseAPIError("User update returned no row")
+        return row
 
     @classmethod
     def delete_user(cls, user_id: str) -> bool:
-        """Delete user from Supabase."""
         client = cls.get_client()
-        response = client.table('user').delete().eq('user_id', user_id).execute()
-        return len(response.data) > 0
+        resp = client.table(cls.table).delete().eq("user_id", user_id).execute()
+        data = getattr(resp, "data", resp)
+        return bool(data)
 
     @classmethod
-    def get_users(cls, filters: dict = None) -> list:
-        """Get users with optional filters."""
+    def list_users(cls, filters: Optional[Dict[str, Any]] = None) -> list:
         client = cls.get_client()
-        query = client.table('user').select('*')
+        query = client.table(cls.table).select("*")
         if filters:
             for key, value in filters.items():
                 query = query.eq(key, value)
-        response = query.execute()
-        return response.data
+        resp = query.execute()
+        return getattr(resp, "data", [])
+
+    @classmethod
+    def verify_password(cls, user_row: Dict[str, Any], password: str) -> bool:
+        password_hash = user_row.get("password_hash") or ""
+        if not password_hash:
+            return False
+        return check_password(password, password_hash)
+
+    @classmethod
+    def set_password(cls, user_id: str, new_password: str) -> Dict[str, Any]:
+        return cls.update_user(user_id, {"password_hash": make_password(new_password)})
+
+
+class SupabaseVendorService:
+    table = "vendor_profile"
+
+    @classmethod
+    def get_client(cls):
+        return SupabaseService.get_client()
+
+    @classmethod
+    def get_vendor_profile(cls, vendor_id: str) -> Optional[Dict[str, Any]]:
+        client = cls.get_client()
+        resp = client.table(cls.table).select("*").eq("vendor_id", vendor_id).limit(1).execute()
+        return _first_row(resp)
+
+    @classmethod
+    def create_vendor_profile(
+        cls,
+        *,
+        user_id: str,
+        vendor_type: str,
+        business_name: str,
+        verification_doc_url: str,
+    ) -> Dict[str, Any]:
+        client = cls.get_client()
+        payload = {
+            "user_id": user_id,
+            "vendor_type": vendor_type,
+            "verification_doc_url": verification_doc_url,
+            "is_verified": False,
+        }
+        resp = client.table(cls.table).insert(payload).execute()
+        row = _first_row(resp)
+        if not row:
+            raise SupabaseAPIError("Vendor creation returned no row")
+        return row
+
+    @classmethod
+    def list_vendor_profiles(cls) -> list:
+        client = cls.get_client()
+        resp = client.table(cls.table).select("*").execute()
+        return getattr(resp, "data", [])
+
+    @classmethod
+    def update_vendor_profile(cls, vendor_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
+        client = cls.get_client()
+        resp = client.table(cls.table).update(patch).eq("vendor_id", vendor_id).execute()
+        row = _first_row(resp)
+        if not row:
+            raise SupabaseAPIError("Vendor update returned no row")
+        return row
 
 
 class CartService:
@@ -217,24 +317,37 @@ class AuthService:
     """Handles JWT token operations."""
 
     @staticmethod
-    def get_tokens_for_user(user) -> dict:
-        """Generate JWT access and refresh tokens for the given user."""
-        refresh = RefreshToken.for_user(user)
+    def get_tokens_for_user(user_row: Dict[str, Any]) -> dict:
+        """Generate JWT access and refresh tokens for a Supabase user row."""
+        refresh = RefreshToken()
+        refresh["user_id"] = str(user_row.get("user_id") or user_row.get("id"))
+        refresh["email"] = user_row.get("email")
+        refresh["username"] = user_row.get("username")
+        refresh["role"] = user_row.get("role")
+
+        access = refresh.access_token
+        access["user_id"] = refresh["user_id"]
+        access["email"] = refresh.get("email")
+        access["username"] = refresh.get("username")
+        access["role"] = refresh.get("role")
+
         return {
-            'refresh': str(refresh),
-            'access': str(refresh.access_token),
+            "refresh": str(refresh),
+            "access": str(access),
         }
 
     @staticmethod
     def logout(refresh_token: str) -> None:
-        """Blacklist the given refresh token to invalidate the session."""
+        """Client-side logout.
+
+        Token blacklisting requires persistent storage; this codebase intentionally does not.
+        """
+        if not refresh_token:
+            return
         try:
-            token = RefreshToken(refresh_token)
-            token.blacklist()
-            logger.info('Refresh token blacklisted.')
-        except TokenError as exc:
-            logger.warning('Logout attempt with invalid token: %s', exc)
-            raise
+            RefreshToken(refresh_token)
+        except Exception:
+            return
 
 
 class UserService:
@@ -242,127 +355,131 @@ class UserService:
 
     @staticmethod
     def update_profile(user, data: dict):
-        """Apply validated field updates to the user model and persist."""
-        for attr, value in data.items():
-            setattr(user, attr, value)
-        user.save()
-        logger.info('Profile updated: %s', user.email)
-        return user
+        """Apply validated field updates to the Supabase user record."""
+        user_id = getattr(user, "id", None) or getattr(user, "user_id", None)
+        updated = SupabaseUserService.update_user(str(user_id), data)
+        logger.info("Profile updated: %s", updated.get("email"))
+        return updated
 
     @staticmethod
     def change_password(user, new_password: str) -> None:
-        """Hash and save a new password for the user."""
-        user.set_password(new_password)
-        user.save(update_fields=['password'])
-        logger.info('Password changed: %s', user.email)
+        user_id = getattr(user, "id", None) or getattr(user, "user_id", None)
+        SupabaseUserService.set_password(str(user_id), new_password)
+        logger.info("Password changed for user_id=%s", user_id)
 
     @staticmethod
     def set_active(user, active: bool) -> None:
-        """Activate or deactivate a user account."""
-        user.is_active = active
-        user.save(update_fields=['is_active'])
-        state = 'activated' if active else 'deactivated'
-        logger.info('User %s %s by admin.', user.email, state)
+        user_id = getattr(user, "id", None) or getattr(user, "user_id", None)
+        SupabaseUserService.update_user(str(user_id), {"is_active": bool(active)})
+        state = "activated" if active else "deactivated"
+        logger.info("User %s %s by admin.", user_id, state)
 
 
 class AdminVendorService:
     """Handles admin vendor management operations."""
 
     @staticmethod
-    def verify_vendor(vendor_profile, is_verified: bool, admin_user, notes: str = ''):
+    def verify_vendor(vendor_profile: Dict[str, Any], is_verified: bool, admin_user, notes: str = ''):
         """Verify or reject a vendor application."""
-        from django.utils import timezone
-        
-        vendor_profile.is_verified = is_verified
-        if is_verified:
-            vendor_profile.verified_at = timezone.now()
-        vendor_profile.save()
+        vendor_id = str(vendor_profile.get("vendor_id") or vendor_profile.get("id"))
+        vendor_profile = SupabaseVendorService.update_vendor_profile(
+            vendor_id,
+            {"is_verified": bool(is_verified)},
+        )
         
         # Log action
         AuditLogService.log_action(
             admin_user,
             'vendor_verify' if is_verified else 'vendor_reject',
             'vendor',
-            vendor_profile.id,
+            vendor_id,
             f'Vendor {"approved" if is_verified else "rejected"}. Notes: {notes}'
         )
         
-        logger.info('Vendor %s %s by admin %s', 
-                   vendor_profile.user.email, 
-                   'verified' if is_verified else 'rejected',
-                   admin_user.email)
+        logger.info(
+            "Vendor %s %s by admin %s",
+            vendor_id,
+            "verified" if is_verified else "rejected",
+            getattr(admin_user, "email", "admin"),
+        )
         return vendor_profile
 
     @staticmethod
-    def suspend_vendor(vendor_profile, reason: str, duration_days: int, admin_user):
-        """Suspend a vendor account."""
-        from datetime import timedelta
-        from django.utils import timezone
-        
-        vendor_profile.is_suspended = True
-        vendor_profile.suspension_reason = reason
-        vendor_profile.suspended_at = timezone.now()
-        vendor_profile.suspension_expires_at = timezone.now() + timedelta(days=duration_days)
-        vendor_profile.save()
+    def suspend_vendor(vendor_profile: Dict[str, Any], reason: str, duration_days: int, admin_user):
+        """Suspend a vendor account.
+
+        Current Supabase schema does not include vendor suspension fields on vendor_profile;
+        we model suspension by deactivating the underlying user.
+        """
+        vendor_id = str(vendor_profile.get("vendor_id") or vendor_profile.get("id"))
+        user_id = str(vendor_profile.get("user_id") or "")
+        if user_id:
+            SupabaseUserService.update_user(user_id, {"is_active": False})
         
         # Log action
         AuditLogService.log_action(
             admin_user,
             'vendor_suspend',
             'vendor',
-            vendor_profile.id,
+            vendor_id,
             f'Suspended for {duration_days} days. Reason: {reason}'
         )
         
-        logger.info('Vendor %s suspended by admin %s', 
-                   vendor_profile.user.email,
-                   admin_user.email)
+        logger.info(
+            "Vendor %s suspended by admin %s",
+            vendor_id,
+            getattr(admin_user, "email", "admin"),
+        )
         return vendor_profile
 
     @staticmethod
-    def activate_vendor(vendor_profile, admin_user):
-        """Reactivate a suspended vendor account."""
-        from django.utils import timezone
-        
-        vendor_profile.is_suspended = False
-        vendor_profile.suspension_reason = ''
-        vendor_profile.suspended_at = None
-        vendor_profile.suspension_expires_at = None
-        vendor_profile.save()
+    def activate_vendor(vendor_profile: Dict[str, Any], admin_user):
+        """Reactivate a vendor account by activating the underlying user."""
+        vendor_id = str(vendor_profile.get("vendor_id") or vendor_profile.get("id"))
+        user_id = str(vendor_profile.get("user_id") or "")
+        if user_id:
+            SupabaseUserService.update_user(user_id, {"is_active": True})
         
         # Log action
         AuditLogService.log_action(
             admin_user,
             'vendor_activate',
             'vendor',
-            vendor_profile.id,
+            vendor_id,
             'Vendor reactivated'
         )
         
-        logger.info('Vendor %s activated by admin %s', 
-                   vendor_profile.user.email,
-                   admin_user.email)
+        logger.info(
+            "Vendor %s activated by admin %s",
+            vendor_id,
+            getattr(admin_user, "email", "admin"),
+        )
         return vendor_profile
 
     @staticmethod
-    def assign_dropoff_station(vendor_profile, station_id, admin_user, reason: str = ''):
+    def assign_dropoff_station(vendor_profile: Dict[str, Any], station_id, admin_user, reason: str = ''):
         """Assign a pickup station to vendor."""
-        vendor_profile.default_dropoff_station_id = station_id
-        vendor_profile.save()
+        vendor_id = str(vendor_profile.get("vendor_id") or vendor_profile.get("id"))
+        vendor_profile = SupabaseVendorService.update_vendor_profile(
+            vendor_id,
+            {"default_dropoff_station_id": station_id},
+        )
         
         # Log action
         AuditLogService.log_action(
             admin_user,
             'other',
             'vendor',
-            vendor_profile.id,
+            vendor_id,
             f'Assigned pickup station {station_id}. Reason: {reason}'
         )
         
-        logger.info('Vendor %s assigned to station %s by admin %s', 
-                   vendor_profile.user.email,
-                   station_id,
-                   admin_user.email)
+        logger.info(
+            "Vendor %s assigned to station %s by admin %s",
+            vendor_id,
+            station_id,
+            getattr(admin_user, "email", "admin"),
+        )
         return vendor_profile
 
 
@@ -372,33 +489,28 @@ class AuditLogService:
     @staticmethod
     def log_action(admin_user, action: str, target_type: str, target_id, 
                    details: str = '', ip_address: str = None):
-        """Log an admin action for audit trail."""
-        from users.models import AdminAuditLog
-        
-        log_entry = AdminAuditLog.objects.create(
-            admin=admin_user,
-            action=action,
-            target_type=target_type,
-            target_id=target_id,
-            details=details,
-            ip_address=ip_address
+        """Log an admin action for audit trail.
+
+        This codebase does not persist audit logs in Django ORM.
+        If you have a Supabase table for audit logs, wire it here.
+        """
+        logger.info(
+            "Admin action: %s target=%s:%s admin=%s ip=%s details=%s",
+            action,
+            target_type,
+            target_id,
+            getattr(admin_user, "email", "admin"),
+            ip_address,
+            details,
         )
-        
-        logger.info('Admin action logged: %s by %s', action, admin_user.email)
-        return log_entry
+        return {
+            "action": action,
+            "target_type": target_type,
+            "target_id": str(target_id),
+            "details": details,
+            "ip_address": ip_address,
+        }
 
     @staticmethod
     def get_logs(admin_user=None, action=None, target_type=None, limit=100):
-        """Retrieve audit logs with optional filters."""
-        from users.models import AdminAuditLog
-        
-        query = AdminAuditLog.objects.all()
-        
-        if admin_user:
-            query = query.filter(admin=admin_user)
-        if action:
-            query = query.filter(action=action)
-        if target_type:
-            query = query.filter(target_type=target_type)
-        
-        return query[:limit]
+        return []
