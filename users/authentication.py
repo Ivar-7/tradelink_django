@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 from django.core.exceptions import ImproperlyConfigured
+from rest_framework.authentication import BaseAuthentication, get_authorization_header
 from rest_framework.exceptions import AuthenticationFailed
-from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.tokens import UntypedToken
 
 from tradelink_django.supabase_client import SupabaseService
 from tradelink_django.supabase_postgrest import SupabaseAPIError
@@ -68,11 +70,29 @@ class SupabaseUser:
         )
 
 
-class SupabaseJWTAuthentication(JWTAuthentication):
-    """JWT auth that loads the authenticated user from Supabase (no Django ORM)."""
+class SupabaseJWTAuthentication(BaseAuthentication):
+    """JWT auth that loads the authenticated user from Supabase (no Django auth/ORM)."""
 
     user_table = "user"
     user_id_claim = "user_id"
+
+    def authenticate(self, request):
+        raw = get_authorization_header(request).decode("utf-8")
+        if not raw:
+            return None
+
+        parts = raw.split()
+        if len(parts) != 2 or parts[0].lower() != "bearer":
+            return None
+
+        token = parts[1]
+        try:
+            validated_token = UntypedToken(token)
+        except (InvalidToken, TokenError) as exc:
+            raise AuthenticationFailed("Invalid token") from exc
+
+        user = self.get_user(validated_token)
+        return (user, validated_token)
 
     def get_user(self, validated_token):
         user_id = validated_token.get(self.user_id_claim) or validated_token.get("sub")

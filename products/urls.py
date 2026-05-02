@@ -1,14 +1,10 @@
 from django.urls import include, path
-from rest_framework.routers import DefaultRouter, SimpleRouter
+from rest_framework.routers import DefaultRouter
 
-
-from .views_ecommerce import ProductBrowseViewSet, VendorProductViewSet
+from .views import ProductViewSet
 
 router = DefaultRouter()
-router.register(r'products/browse', ProductBrowseViewSet, basename='product-browse')
-router.register(r'vendor/products', VendorProductViewSet, basename='vendor-product')
-
-inventory_router = SimpleRouter()
+router.register(r'products', ProductViewSet, basename='products')
 
 urlpatterns = [
 	path('', include(router.urls)),

@@ -106,7 +106,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             'product_description': serializer.validated_data.get('description', ''),
             'stock': serializer.validated_data.get('stock_quantity', 0),
             'image_url': serializer.validated_data.get('image_url', ''),
-            'category_id': str(serializer.validated_data['category'].id) if serializer.validated_data.get('category') else None,
+            'category_id': str(serializer.validated_data.get('category_id')) if serializer.validated_data.get('category_id') else None,
         }
         created = ProductService.create_product(payload)
         return Response(self._normalize(created), status=status.HTTP_201_CREATED)
@@ -120,7 +120,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             'product_description': serializer.validated_data.get('description', ''),
             'stock': serializer.validated_data.get('stock_quantity', 0),
             'image_url': serializer.validated_data.get('image_url', ''),
-            'category_id': str(serializer.validated_data['category'].id) if serializer.validated_data.get('category') else None,
+            'category_id': str(serializer.validated_data.get('category_id')) if serializer.validated_data.get('category_id') else None,
         }
         updated = ProductService.update_product(pk, payload)
         if not updated:

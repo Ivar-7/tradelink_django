@@ -1,13 +1,19 @@
 import logging
 from typing import Any, Dict, Optional
 
-from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.hashers import check_password, make_password
 from rest_framework import serializers
 
 from .services import SupabaseUserService
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_password_basic(password: str) -> None:
+    if len(password) < 8:
+        raise serializers.ValidationError("Password must be at least 8 characters long.")
+    if password.isdigit():
+        raise serializers.ValidationError("Password cannot be entirely numeric.")
 
 
 def _as_user_dict(obj: Any) -> Dict[str, Any]:
@@ -38,7 +44,7 @@ def _as_user_dict(obj: Any) -> Dict[str, Any]:
 class RegisterSerializer(serializers.Serializer):
     email = serializers.EmailField()
     username = serializers.CharField(max_length=150)
-    password = serializers.CharField(write_only=True, min_length=8, validators=[validate_password])
+    password = serializers.CharField(write_only=True, min_length=8)
     password_confirm = serializers.CharField(write_only=True, required=False)
 
     first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
@@ -58,6 +64,8 @@ class RegisterSerializer(serializers.Serializer):
         pw2 = attrs.get("password_confirm")
         if pw2 is not None and pw != pw2:
             raise serializers.ValidationError({"password_confirm": "Passwords do not match."})
+
+        _validate_password_basic(pw)
 
         if SupabaseUserService.get_user_by_email(attrs["email"]):
             raise serializers.ValidationError({"email": "Email already exists."})
@@ -168,12 +176,13 @@ class UserProfileUpdateSerializer(serializers.Serializer):
 
 class ChangePasswordSerializer(serializers.Serializer):
     current_password = serializers.CharField(write_only=True)
-    new_password = serializers.CharField(write_only=True, min_length=8, validators=[validate_password])
+    new_password = serializers.CharField(write_only=True, min_length=8)
     new_password_confirm = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
         if attrs["new_password"] != attrs["new_password_confirm"]:
             raise serializers.ValidationError({"new_password_confirm": "Passwords do not match."})
+        _validate_password_basic(attrs["new_password"])
         return attrs
 
     def validate_current_password(self, value):
@@ -245,7 +254,7 @@ class LogoutSerializer(serializers.Serializer):
 class VendorRegisterSerializer(serializers.Serializer):
     email = serializers.EmailField()
     username = serializers.CharField(max_length=150)
-    password = serializers.CharField(write_only=True, min_length=8, validators=[validate_password])
+    password = serializers.CharField(write_only=True, min_length=8)
     password_confirm = serializers.CharField(write_only=True, required=False)
 
     first_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
@@ -262,6 +271,8 @@ class VendorRegisterSerializer(serializers.Serializer):
         pw2 = attrs.get("password_confirm")
         if pw2 is not None and pw != pw2:
             raise serializers.ValidationError({"password_confirm": "Passwords do not match."})
+
+        _validate_password_basic(pw)
 
         if SupabaseUserService.get_user_by_email(attrs["email"]):
             raise serializers.ValidationError({"email": "Email already exists."})
@@ -310,12 +321,13 @@ class ForgotPasswordSerializer(serializers.Serializer):
 
 class ResetPasswordSerializer(serializers.Serializer):
     token = serializers.CharField(write_only=True)
-    new_password = serializers.CharField(write_only=True, min_length=8, validators=[validate_password])
+    new_password = serializers.CharField(write_only=True, min_length=8)
     new_password_confirm = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
         if attrs["new_password"] != attrs["new_password_confirm"]:
             raise serializers.ValidationError({"new_password_confirm": "Passwords do not match."})
+        _validate_password_basic(attrs["new_password"])
         return attrs
 
 

@@ -1,10 +1,11 @@
 import httpx
 import time
-from postgrest.exceptions import APIError
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+
+from tradelink_django.supabase_postgrest import SupabaseAPIError
 
 from .serializers import CartItemCreateUpdateSerializer
 from .services import CartItemService, CartService
@@ -12,12 +13,8 @@ from products.services import ProductService
 
 
 def _upstream_error_response(exc):
-    if isinstance(exc, APIError):
-        payload = exc.args[0] if exc.args and isinstance(exc.args[0], dict) else {}
-        return Response(
-            {'detail': payload.get('message', 'Upstream cart service unavailable. Please retry.')},
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
+    if isinstance(exc, SupabaseAPIError):
+        return Response({'detail': str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
     return Response(
         {'detail': 'Upstream cart service unavailable. Please retry.'},
         status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -29,7 +26,7 @@ def _run_with_upstream_retry(callback, retries=2, base_delay=0.2):
     for attempt in range(retries + 1):
         try:
             return callback()
-        except (APIError, httpx.HTTPError) as exc:
+        except (SupabaseAPIError, httpx.HTTPError) as exc:
             last_exc = exc
             if attempt < retries:
                 time.sleep(base_delay * (attempt + 1))
@@ -51,7 +48,7 @@ def _build_cart_payload(user, refresh_total=False):
         product = None
         try:
             product = ProductService.get_product_for_stock(item["stock_id"])
-        except (APIError, httpx.HTTPError):
+        except (SupabaseAPIError, httpx.HTTPError):
             # Keep cart readable even when product enrichment is temporarily unavailable.
             lookup_failed = True
 
@@ -79,7 +76,7 @@ def _build_cart_payload(user, refresh_total=False):
         if refresh_total:
             try:
                 CartService.set_total(cart["cart_id"], total_price)
-            except (APIError, httpx.HTTPError):
+            except (SupabaseAPIError, httpx.HTTPError):
                 # Do not fail request when persisting total is temporarily unavailable.
                 pass
 
@@ -103,7 +100,7 @@ def cart_list(request):
             base_delay=0.25,
         )
         return Response(payload)
-    except (APIError, httpx.HTTPError) as exc:
+    except (SupabaseAPIError, httpx.HTTPError) as exc:
         return _upstream_error_response(exc)
 
 
@@ -114,7 +111,7 @@ def cart_add_item(request):
     serializer = CartItemCreateUpdateSerializer(data=request.data)
     try:
         serializer.is_valid(raise_exception=True)
-    except (APIError, httpx.HTTPError) as exc:
+    except (SupabaseAPIError, httpx.HTTPError) as exc:
         return _upstream_error_response(exc)
 
     quantity = serializer.validated_data['quantity']
@@ -137,7 +134,7 @@ def cart_add_item(request):
 
     try:
         payload = _run_with_upstream_retry(_add_item_flow, retries=2, base_delay=0.2)
-    except (APIError, httpx.HTTPError) as exc:
+    except (SupabaseAPIError, httpx.HTTPError) as exc:
         return _upstream_error_response(exc)
 
     if payload is None:
@@ -166,7 +163,7 @@ def cart_update_item(request, item_id):
             return Response({'detail': 'Item not found in cart.'}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(_build_cart_payload(request.user, refresh_total=True), status=status.HTTP_200_OK)
-    except (APIError, httpx.HTTPError) as exc:
+    except (SupabaseAPIError, httpx.HTTPError) as exc:
         return _upstream_error_response(exc)
 
 
@@ -184,7 +181,7 @@ def cart_delete_item(request, item_id):
 
         CartItemService.delete_item(item_id)
         return Response(_build_cart_payload(request.user, refresh_total=True), status=status.HTTP_200_OK)
-    except (APIError, httpx.HTTPError) as exc:
+    except (SupabaseAPIError, httpx.HTTPError) as exc:
         return _upstream_error_response(exc)
 
 
@@ -196,7 +193,7 @@ def cart_clear(request):
         cart = CartService.get_or_create_cart(request.user)
         CartItemService.clear(cart['cart_id'])
         return Response(_build_cart_payload(request.user, refresh_total=True), status=status.HTTP_200_OK)
-    except (APIError, httpx.HTTPError) as exc:
+    except (SupabaseAPIError, httpx.HTTPError) as exc:
         return _upstream_error_response(exc)
 
 
