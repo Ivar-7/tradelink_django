@@ -57,7 +57,7 @@ class InventoryMovementSerializer(serializers.Serializer):
 
 
 class ProductDetailSerializer(serializers.Serializer):
-    id = serializers.UUIDField()
+    id = serializers.UUIDField()    
     name = serializers.CharField()
     price = serializers.FloatField()
     description = serializers.CharField()

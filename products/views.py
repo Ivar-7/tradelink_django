@@ -68,7 +68,10 @@ class ProductViewSet(viewsets.ModelViewSet):
             "created_at": item.get("created_at"),
         }
 
-    # 🔥 API → DB payload mapping
+
+
+
+    ## 🔥 API → DB payload mapping
     def _build_payload(self, validated_data):
         return {
             "product_name": validated_data["name"],
@@ -77,8 +80,14 @@ class ProductViewSet(viewsets.ModelViewSet):
             "stock": validated_data.get("stock_quantity", 0),
             "image_url": validated_data.get("image_url", ""),
             # ⚠️ FIXED: use category_id directly (not .id)
-            "category_id": str(validated_data.get("category_id"))
+            "category_id": str(validated_data.get("category_id")),
+            "vendor_id": str(validated_data.get("vendor_id"))
             if validated_data.get("category_id")
+            else None,
+            
+            # 👇 ADD VENDOR ID HERE 👇
+            "vendor_id": str(validated_data.get("vendor_id")) 
+            if validated_data.get("vendor_id") 
             else None,
         }
 
@@ -258,6 +267,7 @@ class ProductViewSet(viewsets.ModelViewSet):
                 "stock": int(item.get("stock_quantity", 0)),
                 "image_url": item.get("image_url", ""),
                 "category_id": item.get("category_id"),
+                "vendor_id": item.get("vendor_id"),
             }
 
             result = ProductService.create_product(payload)
