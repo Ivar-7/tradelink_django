@@ -26,6 +26,72 @@ class SupabaseUserService:
 
     table = "user"
 
+    # Column mapping for the current Supabase schema (see newdatabase.md).
+    # The API layer still talks in terms of `email`, `first_name`, `last_name`.
+    _API_TO_DB = {
+        "email": "email_address",
+        "first_name": "fname",
+        "last_name": "lname",
+    }
+    _DB_COLUMNS = {
+        "user_id",
+        "username",
+        "fname",
+        "lname",
+        "email_address",
+        "password_hash",
+        "gender",
+        "date_of_birth",
+        "role",
+        # Optional columns that may exist in some deployments.
+        "email_verification_token",
+        "is_email_verified",
+        "password_reset_token",
+        "password_reset_token_expiry",
+        "is_active",
+        "is_staff",
+        "is_superuser",
+        "phone_number",
+    }
+
+    @classmethod
+    def _to_db_payload(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert API-style keys to DB column keys and drop unknown fields."""
+        mapped: Dict[str, Any] = {}
+        for key, value in (data or {}).items():
+            db_key = cls._API_TO_DB.get(key, key)
+            mapped[db_key] = value
+
+        # If caller provided both, prefer explicit DB column.
+        if "email" in (data or {}) and "email_address" not in mapped:
+            mapped["email_address"] = (data or {}).get("email")
+
+        # Drop API alias keys to avoid PostgREST column errors.
+        for api_key in cls._API_TO_DB.keys():
+            mapped.pop(api_key, None)
+
+        # Keep only known columns (allows optional columns without breaking older schemas).
+        return {k: v for k, v in mapped.items() if k in cls._DB_COLUMNS}
+
+    @classmethod
+    def _normalize_row(cls, row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Add backwards-compatible aliases (email/first_name/last_name) onto DB rows."""
+        if not row:
+            return row
+        if "email" not in row:
+            row["email"] = row.get("email_address")
+        if "first_name" not in row:
+            row["first_name"] = row.get("fname")
+        if "last_name" not in row:
+            row["last_name"] = row.get("lname")
+        # Common flags are optional in the schema; default safely.
+        row.setdefault("is_active", True)
+        row.setdefault("is_staff", False)
+        row.setdefault("is_superuser", False)
+        row.setdefault("is_email_verified", False)
+        row.setdefault("phone_number", row.get("phone_number") or "")
+        return row
+
     @classmethod
     def get_client(cls):
         return SupabaseService.get_client()
@@ -33,63 +99,122 @@ class SupabaseUserService:
     @classmethod
     def create_user(cls, user_data: Dict[str, Any]) -> Dict[str, Any]:
         client = cls.get_client()
-        resp = client.table(cls.table).insert(user_data).execute()
+        payload = cls._to_db_payload(user_data)
+        try:
+            resp = client.table(cls.table).insert(payload).execute()
+        except SupabaseAPIError as exc:
+            msg = str(exc).lower()
+            # If optional columns are missing in the deployment schema, retry with core columns only.
+            if "could not find" in msg and "column" in msg:
+                core = {k: v for k, v in payload.items() if k in {
+                    "username",
+                    "fname",
+                    "lname",
+                    "email_address",
+                    "password_hash",
+                    "gender",
+                    "date_of_birth",
+                    "role",
+                }}
+                resp = client.table(cls.table).insert(core).execute()
+            else:
+                raise
         row = _first_row(resp)
         if not row:
             raise SupabaseAPIError("User creation returned no row")
-        return row
+        return cls._normalize_row(row) or {}
 
     @classmethod
     def get_user_by_id(cls, user_id: str) -> Optional[Dict[str, Any]]:
         client = cls.get_client()
         resp = client.table(cls.table).select("*").eq("user_id", user_id).limit(1).execute()
-        return _first_row(resp)
+        return cls._normalize_row(_first_row(resp))
 
     @classmethod
     def get_user_by_email(cls, email: str) -> Optional[Dict[str, Any]]:
         client = cls.get_client()
-        resp = client.table(cls.table).select("*").eq("email", email).limit(1).execute()
-        return _first_row(resp)
+        resp = client.table(cls.table).select("*").eq("email_address", email).limit(1).execute()
+        return cls._normalize_row(_first_row(resp))
 
     @classmethod
     def get_user_by_username(cls, username: str) -> Optional[Dict[str, Any]]:
         client = cls.get_client()
         resp = client.table(cls.table).select("*").eq("username", username).limit(1).execute()
-        return _first_row(resp)
+        return cls._normalize_row(_first_row(resp))
 
     @classmethod
     def get_user_by_verification_token(cls, token: str) -> Optional[Dict[str, Any]]:
         client = cls.get_client()
-        resp = (
-            client.table(cls.table)
-            .select("*")
-            .eq("email_verification_token", token)
-            .limit(1)
-            .execute()
-        )
-        return _first_row(resp)
+        try:
+            resp = (
+                client.table(cls.table)
+                .select("*")
+                .eq("email_verification_token", token)
+                .limit(1)
+                .execute()
+            )
+        except SupabaseAPIError as exc:
+            # Some schemas don't include email verification columns.
+            logger.warning("Email verification not supported by schema: %s", exc)
+            return None
+        return cls._normalize_row(_first_row(resp))
 
     @classmethod
     def get_user_by_reset_token(cls, token: str) -> Optional[Dict[str, Any]]:
         client = cls.get_client()
-        resp = (
-            client.table(cls.table)
-            .select("*")
-            .eq("password_reset_token", token)
-            .limit(1)
-            .execute()
-        )
-        return _first_row(resp)
+        try:
+            resp = (
+                client.table(cls.table)
+                .select("*")
+                .eq("password_reset_token", token)
+                .limit(1)
+                .execute()
+            )
+        except SupabaseAPIError as exc:
+            logger.warning("Password reset not supported by schema: %s", exc)
+            return None
+        return cls._normalize_row(_first_row(resp))
 
     @classmethod
     def update_user(cls, user_id: str, user_data: Dict[str, Any]) -> Dict[str, Any]:
         client = cls.get_client()
-        resp = client.table(cls.table).update(user_data).eq("user_id", user_id).execute()
+        patch = cls._to_db_payload(user_data)
+        if not patch:
+            existing = cls.get_user_by_id(user_id)
+            if not existing:
+                raise SupabaseAPIError("User update returned no row")
+            return existing
+
+        try:
+            resp = client.table(cls.table).update(patch).eq("user_id", user_id).execute()
+        except SupabaseAPIError as exc:
+            # If deployment schema is missing optional columns, retry with core columns only.
+            msg = str(exc).lower()
+            if "does not exist" in msg and "column" in msg:
+                core = {k: v for k, v in patch.items() if k in {
+                    "username",
+                    "fname",
+                    "lname",
+                    "email_address",
+                    "password_hash",
+                    "gender",
+                    "date_of_birth",
+                    "role",
+                }}
+                if not core:
+                    existing = cls.get_user_by_id(user_id)
+                    if not existing:
+                        raise
+                    return existing
+                resp = client.table(cls.table).update(core).eq("user_id", user_id).execute()
+            else:
+                raise
+
         row = _first_row(resp)
         if not row:
             # PostgREST returns [] if no row matched. Treat as not found.
             raise SupabaseAPIError("User update returned no row")
-        return row
+        return cls._normalize_row(row) or {}
 
     @classmethod
     def delete_user(cls, user_id: str) -> bool:
@@ -106,7 +231,8 @@ class SupabaseUserService:
             for key, value in filters.items():
                 query = query.eq(key, value)
         resp = query.execute()
-        return getattr(resp, "data", [])
+        rows = getattr(resp, "data", []) or []
+        return [cls._normalize_row(r) for r in rows if r]
 
     @classmethod
     def verify_password(cls, user_row: Dict[str, Any], password: str) -> bool:
@@ -321,7 +447,7 @@ class AuthService:
         """Generate JWT access and refresh tokens for a Supabase user row."""
         refresh = RefreshToken()
         refresh["user_id"] = str(user_row.get("user_id") or user_row.get("id"))
-        refresh["email"] = user_row.get("email")
+        refresh["email"] = user_row.get("email") or user_row.get("email_address")
         refresh["username"] = user_row.get("username")
         refresh["role"] = user_row.get("role")
 

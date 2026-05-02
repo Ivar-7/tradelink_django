@@ -1,6 +1,18 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
+CREATE TABLE public.admin_audit_log (
+  log_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  admin_user_id uuid NOT NULL,
+  action text NOT NULL,
+  target_type text NOT NULL,
+  target_id uuid NOT NULL,
+  details text,
+  ip_address inet,
+  created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT admin_audit_log_pkey PRIMARY KEY (log_id),
+  CONSTRAINT admin_audit_log_admin_user_id_fkey FOREIGN KEY (admin_user_id) REFERENCES public.user(user_id)
+);
 CREATE TABLE public.cart (
   cart_id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid,

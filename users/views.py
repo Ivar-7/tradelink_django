@@ -92,25 +92,33 @@ class RegisterView(APIView):
 
         # Generate and persist email verification token
         verification_token = secrets.token_urlsafe(32)
+        token_persisted = False
         try:
             user_row = SupabaseUserService.update_user(
                 str(user_row["user_id"]),
                 {"email_verification_token": verification_token},
             )
+            token_persisted = user_row.get("email_verification_token") == verification_token
         except Exception:
             logger.exception("Failed to persist email verification token")
 
-        verify_link = f"{request.scheme}://{request.get_host()}/api/v1/auth/verify-email/?token={verification_token}"
-        subject = "Verify your Tradelink account"
-        message = (
-            f"Hi {user_row.get('first_name') or user_row.get('username')},\n\n"
-            f"Please verify your email address by visiting the following link:\n{verify_link}\n\n"
-            "If you did not create an account, please ignore this message.\n"
-        )
-        try:
-            send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [user_row["email"]], fail_silently=False)
-        except Exception:
-            logger.exception("Failed to send verification email")
+        if token_persisted:
+            verify_link = f"{request.scheme}://{request.get_host()}/api/v1/auth/verify-email/?token={verification_token}"
+            subject = "Verify your Tradelink account"
+            message = (
+                f"Hi {user_row.get('first_name') or user_row.get('username')},\n\n"
+                f"Please verify your email address by visiting the following link:\n{verify_link}\n\n"
+                "If you did not create an account, please ignore this message.\n"
+            )
+            try:
+                send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [user_row["email"]], fail_silently=False)
+            except Exception:
+                logger.exception("Failed to send verification email")
+        else:
+            logger.warning(
+                "Email verification token was not persisted (schema likely lacks email_verification_token). "
+                "Skipping verification email."
+            )
 
         tokens = AuthService.get_tokens_for_user(user_row)
         return Response(
@@ -363,13 +371,25 @@ class ForgotPasswordView(APIView):
         reset_token = secrets.token_urlsafe(32)
         expiry = timezone.now() + timedelta(hours=24)
 
-        SupabaseUserService.update_user(
+        updated_row = SupabaseUserService.update_user(
             str(user_row["user_id"]),
             {
                 "password_reset_token": reset_token,
                 "password_reset_token_expiry": expiry.isoformat(),
             },
         )
+        token_persisted = updated_row.get("password_reset_token") == reset_token
+        if not token_persisted:
+            logger.warning(
+                "Password reset token was not persisted (schema likely lacks password_reset_token columns)."
+            )
+            return Response(
+                {
+                    "detail": "Password reset is not configured for the current database schema. "
+                    "Add password_reset_token and password_reset_token_expiry columns (or implement a token table)."
+                },
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
 
         reset_link = f"{request.scheme}://{request.get_host()}/api/v1/auth/reset-password/?token={reset_token}"
         subject = "Tradelink password reset request"
