@@ -84,6 +84,29 @@ DATABASES = {
 }
 
 
+# Migrations
+# This codebase uses Supabase as the system of record. Django migrations must not be
+# used to manage schema, and we don't want `runserver` to warn about unapplied
+# migrations for apps that are installed only to satisfy import-time dependencies.
+DJANGO_DISABLE_MIGRATIONS = config('DJANGO_DISABLE_MIGRATIONS', default=True, cast=bool)
+if DJANGO_DISABLE_MIGRATIONS:
+    MIGRATION_MODULES = {
+        # Built-in apps required by DRF/SimpleJWT import-time behavior
+        'auth': None,
+        'contenttypes': None,
+        # Local apps
+        'users': None,
+        'addresses': None,
+        'products': None,
+        'orders': None,
+        'reviews': None,
+        'payments': None,
+        'carts': None,
+        'feedback': None,
+        'product_categories': None,
+    }
+
+
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
