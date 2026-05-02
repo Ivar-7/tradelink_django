@@ -32,6 +32,32 @@ class ProductViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.AllowAny]
     pagination_class = ProductPagination
 
+    def _build_filters(self, request, *, verified_only: bool = False):
+        return {
+            'search': request.query_params.get('search'),
+            'category_id': request.query_params.get('category_id'),
+            'min_price': float(request.query_params.get('min_price')) if request.query_params.get('min_price') else None,
+            'max_price': float(request.query_params.get('max_price')) if request.query_params.get('max_price') else None,
+            'in_stock': request.query_params.get('in_stock', '').lower() == 'true',
+            'verified_only': bool(verified_only),
+        }
+
+    @staticmethod
+    def _apply_ordering(items, ordering: str | None):
+        if not ordering:
+            return items
+
+        desc = ordering.startswith('-')
+        key = ordering[1:] if desc else ordering
+
+        key_map = {
+            'price': lambda x: x.get('price') or 0,
+            'name': lambda x: (x.get('product_name') or '').lower(),
+        }
+        if key not in key_map:
+            return items
+        return sorted(items, key=key_map[key], reverse=desc)
+
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
             return ProductCreateUpdateSerializer
@@ -64,19 +90,47 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def list(self, request, *args, **kwargs):
         """Override list to include pagination info."""
-        filters = {
-            'search': request.query_params.get('search'),
-            'category_id': request.query_params.get('category_id'),
-            'min_price': float(request.query_params.get('min_price')) if request.query_params.get('min_price') else None,
-            'max_price': float(request.query_params.get('max_price')) if request.query_params.get('max_price') else None,
-            'in_stock': request.query_params.get('in_stock', '').lower() == 'true',
-        }
-        products = [self._normalize(p) for p in ProductService.get_products(filters)]
+        filters = self._build_filters(request)
+        raw = ProductService.get_products(filters)
+        ordering = request.query_params.get('ordering')
+        raw = self._apply_ordering(raw, ordering)
+        products = [self._normalize(p) for p in raw]
         page = self.paginate_queryset(products)
 
         if page is not None:
             paginated_response = self.get_paginated_response(page)
             # Convert to match spec format
+            return Response({
+                'products': paginated_response.data['results'],
+                'total': paginated_response.data['count'],
+                'page': request.query_params.get('page', 1),
+                'limit': request.query_params.get('limit', 20),
+            })
+
+        return Response({
+            'products': products,
+            'total': len(products),
+            'page': 1,
+            'limit': len(products),
+        })
+
+    @action(
+        detail=False,
+        methods=['get'],
+        url_path='browse',
+        permission_classes=[permissions.AllowAny],
+    )
+    def browse(self, request):
+        """GET /products/browse/ - Browse products from verified vendors (public)."""
+        filters = self._build_filters(request, verified_only=True)
+        raw = ProductService.get_products(filters)
+        ordering = request.query_params.get('ordering')
+        raw = self._apply_ordering(raw, ordering)
+        products = [self._normalize(p) for p in raw]
+        page = self.paginate_queryset(products)
+
+        if page is not None:
+            paginated_response = self.get_paginated_response(page)
             return Response({
                 'products': paginated_response.data['results'],
                 'total': paginated_response.data['count'],

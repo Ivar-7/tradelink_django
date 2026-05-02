@@ -81,7 +81,14 @@ class ProductService:
 
 	@classmethod
 	def get_products(cls, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-		query = SupabaseService.get_client().table("product").select("*")
+		verified_only = bool((filters or {}).get("verified_only"))
+		if verified_only:
+			# Only products from verified vendors.
+			# Requires FK: product.vendor_id -> vendor_profile.vendor_id
+			query = SupabaseService.get_client().table("product").select("*,vendor_profile!inner(is_verified)")
+			query = query.eq("vendor_profile.is_verified", "true")
+		else:
+			query = SupabaseService.get_client().table("product").select("*")
 		if filters:
 			if filters.get("category_id"):
 				query = query.eq("category_id", filters["category_id"])

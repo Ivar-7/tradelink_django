@@ -44,6 +44,49 @@ Complete multi-vendor e-commerce platform with order management, inventory track
 - Payout history
 - Multiple payout methods (M-Pesa, Bank Transfer)
 
+## Getting Started with API Testing (Postman)
+
+### Step 1: Register or Login to Get Access Token
+
+**Register a New User**
+- Method: POST
+- URL: `http://127.0.0.1:8000/api/v1/auth/register/`
+- Body:
+```json
+{
+  "email": "user@example.com",
+  "password": "SecurePassword123!",
+  "fname": "John",
+  "lname": "Doe"
+}
+```
+- Response includes: `access` token (JWT)
+
+**Or Login with Existing Credentials**
+- Method: POST
+- URL: `http://127.0.0.1:8000/api/v1/auth/login/`
+- Body:
+```json
+{
+  "email": "user@example.com",
+  "password": "SecurePassword123!"
+}
+```
+- Response includes: `access` token (JWT)
+
+### Step 2: Use Token for Authenticated Requests
+
+Copy the `access` token from the response and add it to the **Authorization** header of all subsequent requests:
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### Important Notes:
+- **Public endpoints** (e.g., `/products/browse/`) do NOT require authentication
+- **Authenticated endpoints** (e.g., `/orders/`) MUST include the Bearer token
+- If you forget the token, you'll get a **403 Forbidden** error
+- Tokens expire after 24 hours; use refresh endpoint to get a new one
+
 ## Core Models
 
 ### Order Flow
@@ -111,11 +154,27 @@ VendorWallet (per vendor)
 
 ### Orders (Authenticated)
 
+**Authentication Required:** All order endpoints require a valid JWT token. Include the token in the `Authorization` header:
+```
+Authorization: Bearer <access_token>
+```
+
 **GET /api/v1/orders/**
 - List user's orders with summary
+- **Parameters:** `page`, `limit`, `status` (optional filters)
+- **Example Postman Request:**
+  - Method: GET
+  - URL: `http://127.0.0.1:8000/api/v1/orders/?page=1&limit=10`
+  - Headers: `Authorization: Bearer <your_access_token>`
+  - Response Code: 200 (with orders list) or 403 (if no token provided)
 
 **GET /api/v1/orders/{id}/**
 - Get order details with items, vendors, shipment
+- **Parameters:** `id` (path) - Order UUID
+- **Example Postman Request:**
+  - Method: GET
+  - URL: `http://127.0.0.1:8000/api/v1/orders/{order_id}/`
+  - Headers: `Authorization: Bearer <your_access_token>`
 
 **POST /api/v1/orders/checkout/**
 ```json
@@ -127,6 +186,11 @@ VendorWallet (per vendor)
 - Creates order from cart
 - Automatically handles multi-vendor suborders
 - Returns order details
+- **Example Postman Request:**
+  - Method: POST
+  - URL: `http://127.0.0.1:8000/api/v1/orders/checkout/`
+  - Headers: `Authorization: Bearer <your_access_token>`
+  - Body: `{"shipping_method": "pickup"}`
 
 **POST /api/v1/orders/{id}/cancel/**
 ```json
@@ -135,6 +199,11 @@ VendorWallet (per vendor)
 }
 ```
 - Cancel order and reverse all changes
+- **Example Postman Request:**
+  - Method: POST
+  - URL: `http://127.0.0.1:8000/api/v1/orders/{order_id}/cancel/`
+  - Headers: `Authorization: Bearer <your_access_token>`
+  - Body: `{"reason": "Changed mind"}`
 
 ### Vendor Dashboard (Vendor Only)
 
