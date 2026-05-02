@@ -291,44 +291,50 @@ The primary domain entities are represented in the data models section. Links:
 
 ## 14. Software Engineering Diagrams
 
-### Required Diagrams
-
 1. **Entity Relationship Diagram (ERD)**
-   - Shows all database models and their relationships
-   - Essential for understanding data structure
 
-2. **System Architecture Diagram**
-   - React frontend, Django backend, database, external integrations (payments, delivery)
-   - Shows high-level component interactions
+   * Database entities and relationships
 
-3. **User Role & Permission Matrix**
-   - Buyer, Vendor, Admin roles and what each can do
-   - Access control mapping
+2. **Data Flow Diagram (DFD)**
 
-4. **Order Lifecycle State Machine**
-   - States: Pending → Confirmed → Shipped → Delivered / Cancelled
-   - Transitions and conditions
+   * System processes, data stores, external entities, and data movement
 
-5. **Buyer User Flow Diagram**
-   - Discovery → Product Detail → Cart → Checkout → Order Tracking → Review
+3. **Use Case Diagram**
 
-6. **Vendor Onboarding Flow**
-   - Application → Review → Approval → Profile Setup → Product Management
+   * Actors and system functionalities
 
-7. **Admin Dashboard Flow**
-   - Vendor Approvals, Marketplace Monitoring, Order Governance
+4. **Class Diagram**
 
-8. **API Architecture Diagram**
-   - Frontend endpoints, backend routing structure, `/api/v1/` versioning
+   * Classes, attributes, methods, and relationships
 
-9. **Payment Flow Diagram**
-   - Order creation → Payment initiation → Provider handling → Completion/Failure
+5. **Sequence Diagram**
 
-10. **Cart & Order Relationship Diagram**
-    - How cart items convert to order items, inventory updates
+   * Interaction flow between objects over time
 
-11. **Component Dependency Diagram**
-    - Which Django apps depend on which (products, orders, payments, etc.)
+6. **Activity Diagram**
 
-12. **Notification/Event Flow**
-    - Triggers for order status, reviews, feedback, approvals
+   * Workflow and process logic
+
+7. **State Machine Diagram (State Diagram)**
+
+   * Object states and transitions
+
+8. **Component Diagram**
+
+   * Software components and dependencies
+
+9. **Deployment Diagram**
+
+   * Physical deployment architecture
+
+10. **Context Diagram**
+
+* High-level system boundary and external interactions
+
+11. **Package Diagram**
+
+* System modules/packages organization
+
+12. **Communication Diagram**
+
+* Object interactions and message flow
