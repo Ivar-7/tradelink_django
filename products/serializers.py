@@ -1,24 +1,36 @@
 from rest_framework import serializers
 
 
-# ---------------------------
-# PRODUCT SERIALIZERS
-# ---------------------------
-
 class ProductCreateUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
     price = serializers.FloatField(min_value=0)
+
     description = serializers.CharField(required=False, allow_blank=True)
     stock_quantity = serializers.IntegerField(required=False, min_value=0)
     image_url = serializers.URLField(required=False, allow_blank=True)
+
     category_id = serializers.UUIDField(required=False, allow_null=True)
 
+    # 🔥 CRITICAL FIX
+    vendor_id = serializers.UUIDField(required=True)
 
+    # Optional but useful
+    status = serializers.ChoiceField(
+        choices=["draft", "published", "archived"],
+        required=False,
+        default="draft"
+    )
 class ProductListSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     name = serializers.CharField()
     price = serializers.FloatField()
+
     image_url = serializers.URLField(allow_null=True, required=False)
+
+    # Add for consistency
+    vendor_id = serializers.UUIDField(required=False)
+    category_id = serializers.UUIDField(allow_null=True, required=False)
+
 
 
 class ProductSerializer(serializers.Serializer):  # detail view
@@ -57,10 +69,26 @@ class InventoryMovementSerializer(serializers.Serializer):
 
 
 class ProductDetailSerializer(serializers.Serializer):
-    id = serializers.UUIDField()    
+    id = serializers.UUIDField()
     name = serializers.CharField()
     price = serializers.FloatField()
+
     description = serializers.CharField()
     stock_quantity = serializers.IntegerField()
+
     image_url = serializers.URLField(allow_null=True, required=False)
+
     category_id = serializers.UUIDField(allow_null=True, required=False)
+    vendor_id = serializers.UUIDField()
+
+    # Extra fields from _normalize
+    status = serializers.CharField()
+    vendor_name = serializers.CharField(required=False)
+    average_rating = serializers.FloatField()
+    review_count = serializers.IntegerField()
+    created_at = serializers.DateTimeField()
+
+    images = serializers.ListField(
+        child=serializers.DictField(),
+        required=False
+    )
