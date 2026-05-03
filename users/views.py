@@ -48,7 +48,7 @@ from .serializers import (
     UserProfileUpdateSerializer,
     VendorProfileSerializer,
     AdminVendorListSerializer,
-    AdminVendorDetailSerializer,
+    AdminVendorDetailSerializer,    
     AdminVendorSuspendSerializer,
     AdminVendorAssignStationSerializer,
     AdminVendorVerifySerializer,

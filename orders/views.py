@@ -111,10 +111,25 @@ class OrderViewSet(viewsets.ViewSet):
 
         # 1. Validate Products & Group by Vendor
         for item in items_data:
-            product = ProductService.get_product(str(item["product_id"]))
+            # AFTER
+            raw_id = str(item["product_id"])
+
+            # Try resolving as stock_id first, then fall back to product_id
+            stock_record = ProductService.get_stock(raw_id)
+
+            if stock_record:
+                # It's a stock_id — fetch enriched product+stock data
+                product = ProductService.get_product_for_stock(raw_id)
+                stock_id = raw_id
+            else:
+                # It's a product_id — look up or create the stock record
+                product = ProductService.get_product(raw_id)
+                resolved_stock_id = ProductService.resolve_stock_id(raw_id)
+                stock_id = resolved_stock_id
+
             if not product:
                 return Response({"detail": "Product not found."}, status=status.HTTP_400_BAD_REQUEST)
-            
+
             qty = int(item["quantity"])
             unit_price = float(product.get("price") or 0)
             vendor_id = product.get("vendor_id")
@@ -128,7 +143,7 @@ class OrderViewSet(viewsets.ViewSet):
 
             order_items.append(
                 {
-                    "stock_id": str(item["product_id"]),
+                    "stock_id": stock_id,
                     "vendor_id": vendor_id,
                     "quantity": qty,
                     "unit_price": unit_price,

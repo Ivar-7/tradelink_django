@@ -9,7 +9,7 @@ from .serializers import (
     ProductDetailSerializer,
 )
 from .services import ProductService
-
+import uuid
 
 # Temporary in-memory image store
 PRODUCT_IMAGES = {}
@@ -68,9 +68,6 @@ class ProductViewSet(viewsets.ModelViewSet):
             "created_at": item.get("created_at"),
         }
 
-
-
-
     ## 🔥 API → DB payload mapping
     def _build_payload(self, validated_data):
         return {
@@ -79,13 +76,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             "product_description": validated_data.get("description", ""),
             "stock": validated_data.get("stock_quantity", 0),
             "image_url": validated_data.get("image_url", ""),
-            # ⚠️ FIXED: use category_id directly (not .id)
             "category_id": str(validated_data.get("category_id")),
-            "vendor_id": str(validated_data.get("vendor_id"))
-            if validated_data.get("category_id")
-            else None,
-            
-            # 👇 ADD VENDOR ID HERE 👇
             "vendor_id": str(validated_data.get("vendor_id")) 
             if validated_data.get("vendor_id") 
             else None,
@@ -150,7 +141,6 @@ class ProductViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         payload = self._build_payload(serializer.validated_data)
-
         created = ProductService.create_product(payload)
 
         return Response(
@@ -163,7 +153,6 @@ class ProductViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         payload = self._build_payload(serializer.validated_data)
-
         updated = ProductService.update_product(pk, payload)
 
         if not updated:
@@ -190,10 +179,8 @@ class ProductViewSet(viewsets.ModelViewSet):
         for key, value in request.data.items():
             if key in field_map:
                 mapped_key = field_map[key]
-
                 if key == "price":
                     value = self._to_smallint_price(value)
-
                 payload[mapped_key] = value
 
         if not payload:
@@ -341,8 +328,6 @@ class ProductViewSet(viewsets.ModelViewSet):
                 {"detail": "image_url is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        import uuid
 
         image_obj = {"id": str(uuid.uuid4()), "image_url": image_url}
 
