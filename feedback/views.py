@@ -10,36 +10,39 @@ from .services import FeedbackService
 class FeedbackView(APIView):
     """
     API for user feedback/contact form.
-    
+
     Endpoints:
     - POST /feedback/ - Submit feedback
     """
+
+    # check if user has a valid JWT token
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         """POST /feedback/ - Submit feedback."""
+
+        # get data from request body and pass to serializer to check for validity
         serializer = FeedbackCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         feedback = FeedbackService.create_feedback(
             {
-                'user_id': str(request.user.id),
-                'type': serializer.validated_data['type'],
-                'message': serializer.validated_data['message'],
+                "user_id": str(request.user.id),
+                "type": serializer.validated_data["type"],
+                "message": serializer.validated_data["message"],
             }
         )
 
         return Response(
             {
-                'success': True,
-                'item': {
-                    'id': feedback.get('feedback_id'),
-                    'user_id': feedback.get('user_id'),
-                    'type': feedback.get('type'),
-                    'message': feedback.get('message'),
-                    'created_at': feedback.get('date_submitted'),
+                "success": True,
+                "item": {
+                    "id": feedback.get("feedback_id"),
+                    "user_id": feedback.get("user_id"),
+                    "type": feedback.get("type"),
+                    "message": feedback.get("message"),
+                    "created_at": feedback.get("date_submitted"),
                 },
             },
-            status=status.HTTP_201_CREATED
+            status=status.HTTP_201_CREATED,
         )
-

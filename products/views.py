@@ -36,7 +36,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     pagination_class = ProductPagination
 
     # 🔥 Correct serializer resolution
-    def get_serializer_class(self):
+    def get_serializer_class(self):  # type: ignore
         if self.action == "list":
             return ProductListSerializer
         elif self.action == "retrieve":
@@ -77,9 +77,11 @@ class ProductViewSet(viewsets.ModelViewSet):
             "stock": validated_data.get("stock_quantity", 0),
             "image_url": validated_data.get("image_url", ""),
             "category_id": str(validated_data.get("category_id")),
-            "vendor_id": str(validated_data.get("vendor_id")) 
-            if validated_data.get("vendor_id") 
-            else None,
+            "vendor_id": (
+                str(validated_data.get("vendor_id"))
+                if validated_data.get("vendor_id")
+                else None
+            ),
         }
 
     @staticmethod
@@ -94,12 +96,16 @@ class ProductViewSet(viewsets.ModelViewSet):
         filters = {
             "search": request.query_params.get("search"),
             "category_id": request.query_params.get("category_id"),
-            "min_price": float(request.query_params.get("min_price"))
-            if request.query_params.get("min_price")
-            else None,
-            "max_price": float(request.query_params.get("max_price"))
-            if request.query_params.get("max_price")
-            else None,
+            "min_price": (
+                float(request.query_params.get("min_price"))
+                if request.query_params.get("min_price")
+                else None
+            ),
+            "max_price": (
+                float(request.query_params.get("max_price"))
+                if request.query_params.get("max_price")
+                else None
+            ),
             "in_stock": request.query_params.get("in_stock", "").lower() == "true",
         }
 
@@ -303,9 +309,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             if updated:
                 updated_items.append(self._normalize(updated))
 
-        return Response(
-            {"updated": updated_items, "count": len(updated_items)}
-        )
+        return Response({"updated": updated_items, "count": len(updated_items)})
 
     # ---------------------------
     # IMAGE MANAGEMENT
@@ -354,6 +358,7 @@ class ProductViewSet(viewsets.ModelViewSet):
 # INVENTORY VIEW
 # ---------------------------
 
+
 class InventoryViewSet(viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -370,9 +375,7 @@ class InventoryViewSet(viewsets.ViewSet):
             for p in products
         ]
 
-        return Response(
-            {"inventory": inventory, "total": len(inventory)}
-        )
+        return Response({"inventory": inventory, "total": len(inventory)})
 
     def partial_update(self, request, pk=None):
         stock_quantity = request.data.get("stock_quantity")
@@ -383,9 +386,7 @@ class InventoryViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        updated = ProductService.update_product(
-            pk, {"stock": int(stock_quantity)}
-        )
+        updated = ProductService.update_product(pk, {"stock": int(stock_quantity)})
 
         if not updated:
             return Response(
@@ -416,6 +417,4 @@ class InventoryViewSet(viewsets.ViewSet):
             if int(p.get("stock") or 0) <= threshold
         ]
 
-        return Response(
-            {"items": low, "total": len(low), "threshold": threshold}
-        )
+        return Response({"items": low, "total": len(low), "threshold": threshold})
