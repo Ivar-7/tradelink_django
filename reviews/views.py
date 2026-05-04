@@ -38,6 +38,7 @@ class ProductReviewViewSet(ViewSet):
             "date": item.get("date_created"),
         }
 
+    # endpoint for getting reviews for a product
     @action(
         detail=False,
         methods=["get"],
@@ -45,9 +46,13 @@ class ProductReviewViewSet(ViewSet):
         url_name="product-reviews",
     )
     def list_product_reviews(self, request, product_id=None):
+
+        # check if product exists
         product = ProductService.get_product(product_id)
         if not product:
-            return Response({"detail": "Product not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"detail": "Product not found."}, status=status.HTTP_404_NOT_FOUND
+            )
 
         reviews = [
             self._normalize(review)
@@ -57,20 +62,27 @@ class ProductReviewViewSet(ViewSet):
 
         avg = 0.0
         if reviews:
-            avg = round(sum(float(r.get("rating_value") or 0) for r in reviews) / len(reviews), 2)
+            avg = round(
+                sum(float(r.get("rating_value") or 0) for r in reviews) / len(reviews),
+                2,
+            )
 
-        return Response({"reviews": reviews, "total": len(reviews), "average_rating": avg})
+        return Response(
+            {"reviews": reviews, "total": len(reviews), "average_rating": avg}
+        )
 
-    @extend_schema(operation_id='v1_reviews_list')
+    @extend_schema(operation_id="v1_reviews_list")
     def list(self, request):
         reviews = [self._normalize(review) for review in ReviewService.list_reviews()]
         return Response({"reviews": reviews, "total": len(reviews)})
 
-    @extend_schema(operation_id='v1_reviews_product')
+    @extend_schema(operation_id="v1_reviews_product")
     def retrieve(self, request, pk=None):
         product = ProductService.get_product(pk)
         if not product:
-            return Response({"detail": "Product not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"detail": "Product not found."}, status=status.HTTP_404_NOT_FOUND
+            )
         reviews = [
             self._normalize(review)
             for review in ReviewService.list_reviews()
@@ -78,6 +90,7 @@ class ProductReviewViewSet(ViewSet):
         ]
         return Response({"product_id": pk, "reviews": reviews, "total": len(reviews)})
 
+    # endpoint for posting review
     @action(
         detail=False,
         methods=["post"],
@@ -86,12 +99,19 @@ class ProductReviewViewSet(ViewSet):
     )
     def create_product_review(self, request, product_id=None):
         if not request.user.is_authenticated:
-            return Response({"detail": "Authentication required."}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response(
+                {"detail": "Authentication required."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
+        # check if product exists
         product = ProductService.get_product(product_id)
         if not product:
-            return Response({"detail": "Product not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"detail": "Product not found."}, status=status.HTTP_404_NOT_FOUND
+            )
 
+        # only one review per user per product
         user_id = str(request.user.id)
         existing = [
             r
@@ -126,10 +146,15 @@ class ProductReviewViewSet(ViewSet):
         reviews = ReviewService.list_reviews()
         target = next((r for r in reviews if r.get("review_id") == review_id), None)
         if not target:
-            return Response({"detail": "Review not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"detail": "Review not found."}, status=status.HTTP_404_NOT_FOUND
+            )
 
         if not request.user.is_authenticated:
-            return Response({"detail": "Authentication required."}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response(
+                {"detail": "Authentication required."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         if target.get("user_id") != str(request.user.id) and not request.user.is_staff:
             return Response(
@@ -143,15 +168,22 @@ class ProductReviewViewSet(ViewSet):
     @action(detail=True, methods=["post"], url_path="respond")
     def respond(self, request, pk=None):
         if not request.user.is_authenticated:
-            return Response({"detail": "Authentication required."}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response(
+                {"detail": "Authentication required."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         response_text = request.data.get("response")
         if not response_text:
-            return Response({"detail": "response is required."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "response is required."}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         review = ReviewService.get_review(pk)
         if not review:
-            return Response({"detail": "Review not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"detail": "Review not found."}, status=status.HTTP_404_NOT_FOUND
+            )
 
         self.REVIEW_RESPONSES[str(pk)] = {
             "review_id": pk,

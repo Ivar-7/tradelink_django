@@ -21,10 +21,11 @@ class FeedbackView(APIView):
     def post(self, request):
         """POST /feedback/ - Submit feedback."""
 
-        # get data from request body and pass to serializer to check for validity
+        # get data from JSON request body and pass to serializer to check for validity
         serializer = FeedbackCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        # call supabase service to save feedback to database
         feedback = FeedbackService.create_feedback(
             {
                 "user_id": str(request.user.id),
@@ -33,6 +34,7 @@ class FeedbackView(APIView):
             }
         )
 
+        # create response object with feedback data
         return Response(
             {
                 "success": True,

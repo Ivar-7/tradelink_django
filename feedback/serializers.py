@@ -7,10 +7,11 @@ class FeedbackSerializer(serializers.ModelSerializer):
 
     user_id = serializers.CharField(source="user.id", read_only=True)
 
-    class Meta:
-        model = Feedback
-        fields = ["id", "user_id", "type", "message", "created_at"]
-        read_only_fields = ["id", "user_id", "created_at"]
+
+class Meta:
+    model = Feedback
+    fields = ["id", "user_id", "type", "message", "created_at"]
+    read_only_fields = ["id", "user_id", "created_at"]
 
 
 class FeedbackCreateSerializer(serializers.Serializer):
